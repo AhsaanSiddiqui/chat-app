@@ -10,12 +10,12 @@ const HomePage = () => {
 
 
   return (
-      <div className="border w-full h-screen sm:px-[15%] sm:py-[5%]">
-        <div     className={`backdrop-blur-xl border-2 border-gray-600 rounded-2xl overflow-hidden h-full grid
+      <div className=" w-full h-screen ">
+        <div     className={`backdrop-blur-xl  overflow-hidden h-full grid
       ${
         selectedUser
-          ? "grid-cols-1 md:grid-cols-[1fr_1.5fr_1fr] xl:grid-cols-[1fr_2fr_1fr]"
-          : "grid-cols-1 md:grid-cols-2"
+          ? "grid-cols-1 md:grid-cols-[25%_50%_25%]"
+  : "grid-cols-1 md:grid-cols-[30%_70%]"
       }`} >
           <Sidebar />
           <ChatContainer />
