@@ -41,9 +41,10 @@ const {
 
         <div className="flex items-center gap-2">
           <img
+          onClick={() => navigate("/")}
             src={assets.logo_icon}
             alt="QuickChat"
-            className="h-10"
+            className="h-10 cursor-pointer"
           />
 
           {/* <h1 className="text-lg font-semibold tracking-tight">
@@ -61,7 +62,7 @@ const {
       </div>
 
       {/* Logged in user */}
-      <div   onClick={() => navigate("/profile")}
+      <div onClick={() => navigate("/profile")}
        className="flex items-center gap-3 p-3 rounded-xl border border-gray-700 
              bg-white/5 cursor-pointer hover:bg-white/10 transition mb-3">
 
