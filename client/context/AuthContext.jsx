@@ -87,25 +87,29 @@ export const AuthProvider = ({ children }) => {
 
   // Connect Socket
   const connectSocket = (userData) => {
-    if (!userData) return;
+    if (!userData || !userData._id) return;
 
-    if (socket?.connected) return;
+    setSocket((prev) => {
+      if (prev?.connected) return prev;
 
-    const newSocket = io(backendUrl, {
-      query: {
-        userId: userData._id,
-      },
+      if (prev) prev.disconnect();
+
+      const newSocket = io(backendUrl, {
+        query: {
+          userId: userData._id,
+        },
+      });
+
+      newSocket.on("connect", () => {
+        console.log("Socket Connected");
+      });
+
+      newSocket.on("getOnlineUsers", (userIds) => {
+        setOnlineUsers(userIds);
+      });
+
+      return newSocket;
     });
-
-    newSocket.on("connect", () => {
-      console.log("Socket Connected");
-    });
-
-    newSocket.on("getOnlineUsers", (userIds) => {
-      setOnlineUsers(userIds);
-    });
-
-    setSocket(newSocket);
   };
 
   useEffect(() => {

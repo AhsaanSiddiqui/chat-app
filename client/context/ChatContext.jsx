@@ -53,11 +53,11 @@ export const ChatProvider = ({ children }) => {
     }
 
     // function to subscribe to message for selected user
-    const subscribeToMessages = async () => {
+    const subscribeToMessages = () => {
         if (!socket) return;
 
         socket.on("newMessage", (newMessage) => {
-            if (selectedUser && newMessage.senderId === selectedUser._id) {
+            if (selectedUser && String(newMessage.senderId) === String(selectedUser._id)) {
                 newMessage.seen = true;
                 setMessages((prevMessages) => [...prevMessages, newMessage]);
                 axios.put(`/api/messages/mark/${newMessage._id}`)
