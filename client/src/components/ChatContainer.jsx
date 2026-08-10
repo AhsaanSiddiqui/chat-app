@@ -157,12 +157,23 @@ const ChatContainer = () => {
         <div className="flex flex-col gap-3">
           {messages.map((msg) => {
             const isMine = String(msg.senderId) === String(authUser._id);
+            const avatarSrc = isMine
+              ? authUser.profilePic || assets.avatar_icon
+              : selectedUser.profilePic || assets.avatar_icon;
 
             return (
               <div
                 key={msg._id}
-                className={`flex group ${isMine ? "justify-end" : "justify-start"}`}
+                className={`flex group items-end gap-2 ${isMine ? "justify-end" : "justify-start"}`}
               >
+                {!isMine && (
+                  <img
+                    src={avatarSrc}
+                    alt=""
+                    className="w-8 h-8 rounded-full object-cover flex-shrink-0 mb-4"
+                  />
+                )}
+
                 <div className={`max-w-xs relative ${isMine ? "items-end" : "items-start"}`}>
                   {isMine && !msg.isDeleted && (
                     <div className="absolute -top-1 -left-8 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -240,6 +251,14 @@ const ChatContainer = () => {
                     {formatMessageTime(msg.createdAt)}
                   </p>
                 </div>
+
+                {isMine && (
+                  <img
+                    src={avatarSrc}
+                    alt=""
+                    className="w-8 h-8 rounded-full object-cover flex-shrink-0 mb-4"
+                  />
+                )}
               </div>
             );
           })}
