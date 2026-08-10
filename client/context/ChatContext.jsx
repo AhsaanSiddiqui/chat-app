@@ -459,46 +459,93 @@ export const ChatProvider = ({ children }) => {
   const sendMessage = async (messageData) => {
     if (!authUser?._id) return;
 
-    if (selectedGroup?._id) {
-      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const optimisticMessage = {
-        _id: tempId,
-        groupId: selectedGroup._id,
-        senderId: {
-          _id: authUser._id,
-          fullName: authUser.fullName,
-          profilePic: authUser.profilePic,
-        },
+    const hasFile = messageData.file instanceof File;
+    const isImageFile =
+      hasFile && messageData.file.type?.startsWith("image/");
+
+    const buildOptimistic = (extra = {}) => {
+      const optimistic = {
+        _id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         text: messageData.text || "",
-        image: messageData.image || "",
-        seenBy: [authUser._id],
+        image:
+          messageData.image ||
+          (isImageFile ? messageData.previewUrl || "" : "") ||
+          "",
         isEdited: false,
         isDeleted: false,
         createdAt: new Date().toISOString(),
         pending: true,
+        ...extra,
       };
+
+      if (hasFile) {
+        optimistic.attachment = {
+          url: isImageFile ? messageData.previewUrl || "" : "",
+          name: messageData.file.name,
+          size: messageData.file.size,
+          mimeType: messageData.file.type,
+          kind: messageData.fileKind || "file",
+        };
+      }
 
       if (messageData.replyTo) {
         const original = messagesRef.current.find(
           (msg) => String(msg._id) === String(messageData.replyTo)
         );
         if (original) {
-          optimisticMessage.replyTo = {
+          optimistic.replyTo = {
             messageId: original._id,
             senderId: resolveId(original.senderId),
             text: original.isDeleted ? "" : original.text,
             image: original.isDeleted ? "" : original.image,
+            fileName: original.isDeleted
+              ? ""
+              : original.attachment?.name || "",
             isDeleted: !!original.isDeleted,
           };
         }
       }
 
+      return optimistic;
+    };
+
+    const postPayload = async (url) => {
+      if (hasFile) {
+        const form = new FormData();
+        if (messageData.text) form.append("text", messageData.text);
+        if (messageData.replyTo) form.append("replyTo", messageData.replyTo);
+        form.append("file", messageData.file);
+        return axios.post(url, form, { timeout: 900000 });
+      }
+
+      return axios.post(
+        url,
+        {
+          text: messageData.text,
+          image: messageData.image,
+          replyTo: messageData.replyTo,
+        },
+        { timeout: messageData.image ? 180000 : 60000 }
+      );
+    };
+
+    if (selectedGroup?._id) {
+      const optimisticMessage = buildOptimistic({
+        groupId: selectedGroup._id,
+        senderId: {
+          _id: authUser._id,
+          fullName: authUser.fullName,
+          profilePic: authUser.profilePic,
+        },
+        seenBy: [authUser._id],
+      });
+      const tempId = optimisticMessage._id;
+
       setMessages((prev) => [...prev, optimisticMessage]);
 
       try {
-        const { data } = await axios.post(
-          `/api/groups/${selectedGroup._id}/messages`,
-          messageData
+        const { data } = await postPayload(
+          `/api/groups/${selectedGroup._id}/messages`
         );
         if (data.success) {
           setMessages((prev) =>
@@ -521,41 +568,18 @@ export const ChatProvider = ({ children }) => {
 
     if (!selectedUser?._id) return;
 
-    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const optimisticMessage = {
-      _id: tempId,
+    const optimisticMessage = buildOptimistic({
       senderId: authUser._id,
       receiverId: selectedUser._id,
-      text: messageData.text || "",
-      image: messageData.image || "",
       seen: false,
-      isEdited: false,
-      isDeleted: false,
-      createdAt: new Date().toISOString(),
-      pending: true,
-    };
-
-    if (messageData.replyTo) {
-      const original = messagesRef.current.find(
-        (msg) => String(msg._id) === String(messageData.replyTo)
-      );
-      if (original) {
-        optimisticMessage.replyTo = {
-          messageId: original._id,
-          senderId: original.senderId,
-          text: original.isDeleted ? "" : original.text,
-          image: original.isDeleted ? "" : original.image,
-          isDeleted: !!original.isDeleted,
-        };
-      }
-    }
+    });
+    const tempId = optimisticMessage._id;
 
     setMessages((prev) => [...prev, optimisticMessage]);
 
     try {
-      const { data } = await axios.post(
-        `/api/messages/send/${selectedUser._id}`,
-        messageData
+      const { data } = await postPayload(
+        `/api/messages/send/${selectedUser._id}`
       );
       if (data.success) {
         setMessages((prev) =>
@@ -642,9 +666,11 @@ export const ChatProvider = ({ children }) => {
         title: group?.name || "Group message",
         body: newMessage.text
           ? `${sender?.fullName || "Someone"}: ${newMessage.text}`
-          : newMessage.image
+          : newMessage.image || newMessage.attachment?.kind === "image"
             ? `${sender?.fullName || "Someone"} sent a photo`
-            : "New group message",
+            : newMessage.attachment?.name
+              ? `${sender?.fullName || "Someone"} sent ${newMessage.attachment.name}`
+              : "New group message",
         icon: group?.groupPic || sender?.profilePic || undefined,
         tag: `group-${newMessage.groupId}`,
         onClick: () => {
@@ -661,9 +687,11 @@ export const ChatProvider = ({ children }) => {
     const title = sender?.fullName || "New message";
     const body = newMessage.text
       ? newMessage.text
-      : newMessage.image
+      : newMessage.image || newMessage.attachment?.kind === "image"
         ? "Sent a photo"
-        : "New message";
+        : newMessage.attachment?.name
+          ? `Sent ${newMessage.attachment.name}`
+          : "New message";
 
     showChatNotification({
       title,

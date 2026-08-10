@@ -28,3 +28,70 @@ export function formatSeenTime(seenAt, sentAt) {
   const diffDays = Math.floor(diffHours / 24);
   return `Seen ${time} (+${diffDays}d)`;
 }
+
+export const MAX_ATTACHMENT_SIZE = 600 * 1024 * 1024; // 600MB
+
+export const ATTACHMENT_ACCEPT =
+  "image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg,.heic,.heif,.tif,.tiff,.ico,.avif,.pdf,.doc,.docx,.txt,.rtf,.odt,.xls,.xlsx,.csv,.ods,.zip,.rar,.7z";
+
+export function formatFileSize(bytes = 0) {
+  if (!bytes || bytes < 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+export function getAttachmentKind(file) {
+  const name = (file?.name || "").toLowerCase();
+  const mime = (file?.type || "").toLowerCase();
+
+  if (
+    mime.startsWith("image/") ||
+    /\.(png|jpe?g|webp|gif|bmp|svg|heic|heif|tiff?|ico|avif)$/.test(name)
+  ) {
+    return "image";
+  }
+  if (mime === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  if (
+    mime.includes("word") ||
+    mime.includes("msword") ||
+    /\.(docx?|rtf|odt|txt)$/.test(name)
+  ) {
+    return "doc";
+  }
+  if (
+    mime.includes("excel") ||
+    mime.includes("spreadsheet") ||
+    /\.(xlsx?|csv|ods)$/.test(name)
+  ) {
+    return "excel";
+  }
+  if (
+    mime.includes("zip") ||
+    mime.includes("compressed") ||
+    /\.(zip|rar|7z)$/.test(name)
+  ) {
+    return "zip";
+  }
+  return "file";
+}
+
+export function attachmentLabel(kind) {
+  switch (kind) {
+    case "image":
+      return "Photo";
+    case "pdf":
+      return "PDF";
+    case "doc":
+      return "Document";
+    case "excel":
+      return "Spreadsheet";
+    case "zip":
+      return "Archive";
+    default:
+      return "File";
+  }
+}

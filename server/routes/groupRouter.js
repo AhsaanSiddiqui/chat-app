@@ -12,6 +12,7 @@ import {
   sendGroupMessage,
   updateGroup,
 } from "../controllers/groupController.js";
+import { handleChatUpload } from "../lib/attachments.js";
 
 const groupRouter = express.Router();
 
@@ -22,7 +23,12 @@ groupRouter.put("/:id", protectRoute, updateGroup);
 groupRouter.post("/:id/members", protectRoute, addGroupMembers);
 groupRouter.delete("/:id/members/:userId", protectRoute, removeGroupMember);
 groupRouter.get("/:id/messages", protectRoute, getGroupMessages);
-groupRouter.post("/:id/messages", protectRoute, sendGroupMessage);
+groupRouter.post(
+  "/:id/messages",
+  protectRoute,
+  handleChatUpload,
+  sendGroupMessage
+);
 groupRouter.put("/messages/:messageId", protectRoute, editGroupMessage);
 groupRouter.delete("/messages/:messageId", protectRoute, deleteGroupMessage);
 

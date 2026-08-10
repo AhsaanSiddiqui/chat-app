@@ -1,6 +1,10 @@
 import Message from "../models/Message.js";
 import User from "../models/User.js";
 import cloudinary from "../lib/cloudinary.js"
+import {
+    removeTempFile,
+    uploadAttachmentToCloudinary,
+} from "../lib/attachments.js";
 import { io, userSocketMap } from "../server.js"
 
 //  Get all users except the logged in user
@@ -146,9 +150,34 @@ export const sendMessage = async (req, res) => {
         const senderId = req.user._id;
 
         let imageUrl;
-        if (image) {
-            const uploadResponse = await cloudinary.uploader.upload(image)
+        let attachment;
+
+        if (req.file) {
+            try {
+                attachment = await uploadAttachmentToCloudinary(req.file);
+                if (attachment.kind === "image") {
+                    imageUrl = attachment.url;
+                }
+            } finally {
+                await removeTempFile(req.file.path);
+            }
+        } else if (image) {
+            const uploadResponse = await cloudinary.uploader.upload(image);
             imageUrl = uploadResponse.secure_url;
+            attachment = {
+                url: imageUrl,
+                name: "image.jpg",
+                size: 0,
+                mimeType: "image/jpeg",
+                kind: "image",
+            };
+        }
+
+        if (!text?.trim() && !imageUrl && !attachment) {
+            return res.json({
+                success: false,
+                message: "Message cannot be empty",
+            });
         }
 
         let replyData;
@@ -160,6 +189,9 @@ export const sendMessage = async (req, res) => {
                     senderId: original.senderId,
                     text: original.isDeleted ? "" : original.text,
                     image: original.isDeleted ? "" : original.image,
+                    fileName: original.isDeleted
+                        ? ""
+                        : original.attachment?.name || "",
                     isDeleted: !!original.isDeleted,
                 };
             }
@@ -168,8 +200,9 @@ export const sendMessage = async (req, res) => {
         const newMessage = await Message.create({
             senderId,
             receiverId,
-            text,
+            text: text || "",
             image: imageUrl,
+            ...(attachment ? { attachment } : {}),
             ...(replyData ? { replyTo: replyData } : {}),
         })
 
@@ -182,6 +215,7 @@ export const sendMessage = async (req, res) => {
 
         res.json({ success: true, newMessage })
     } catch (error) {
+        if (req.file?.path) await removeTempFile(req.file.path);
         console.log(error.message)
         res.json({ success: false, message: error.message })
     }
@@ -223,6 +257,10 @@ export const editMessage = async (req, res) => {
             return res.json({ success: false, message: "Image messages cannot be edited" });
         }
 
+        if (message.attachment?.url && !message.text) {
+            return res.json({ success: false, message: "File messages cannot be edited" });
+        }
+
         message.text = text.trim();
         message.isEdited = true;
         await message.save();
@@ -253,6 +291,7 @@ export const deleteMessage = async (req, res) => {
 
         message.text = "";
         message.image = "";
+        message.attachment = undefined;
         message.isDeleted = true;
         message.isEdited = false;
         await message.save();

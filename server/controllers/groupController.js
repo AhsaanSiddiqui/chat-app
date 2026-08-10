@@ -2,6 +2,10 @@ import Group from "../models/Group.js";
 import GroupMessage from "../models/GroupMessage.js";
 import User from "../models/User.js";
 import cloudinary from "../lib/cloudinary.js";
+import {
+  removeTempFile,
+  uploadAttachmentToCloudinary,
+} from "../lib/attachments.js";
 import { io, userSocketMap } from "../server.js";
 
 const emitToGroupMembers = (memberIds, event, payload, exceptUserId = null) => {
@@ -280,9 +284,34 @@ export const sendGroupMessage = async (req, res) => {
     }
 
     let imageUrl;
-    if (image) {
+    let attachment;
+
+    if (req.file) {
+      try {
+        attachment = await uploadAttachmentToCloudinary(req.file);
+        if (attachment.kind === "image") {
+          imageUrl = attachment.url;
+        }
+      } finally {
+        await removeTempFile(req.file.path);
+      }
+    } else if (image) {
       const upload = await cloudinary.uploader.upload(image);
       imageUrl = upload.secure_url;
+      attachment = {
+        url: imageUrl,
+        name: "image.jpg",
+        size: 0,
+        mimeType: "image/jpeg",
+        kind: "image",
+      };
+    }
+
+    if (!text?.trim() && !imageUrl && !attachment) {
+      return res.json({
+        success: false,
+        message: "Message cannot be empty",
+      });
     }
 
     let replyData;
@@ -294,6 +323,9 @@ export const sendGroupMessage = async (req, res) => {
           senderId: original.senderId,
           text: original.isDeleted ? "" : original.text,
           image: original.isDeleted ? "" : original.image,
+          fileName: original.isDeleted
+            ? ""
+            : original.attachment?.name || "",
           isDeleted: !!original.isDeleted,
         };
       }
@@ -302,8 +334,9 @@ export const sendGroupMessage = async (req, res) => {
     const message = await GroupMessage.create({
       groupId,
       senderId,
-      text,
+      text: text || "",
       image: imageUrl,
+      ...(attachment ? { attachment } : {}),
       seenBy: [senderId],
       ...(replyData ? { replyTo: replyData } : {}),
     });
@@ -320,6 +353,7 @@ export const sendGroupMessage = async (req, res) => {
 
     res.json({ success: true, newMessage: populated });
   } catch (error) {
+    if (req.file?.path) await removeTempFile(req.file.path);
     console.log(error.message);
     res.json({ success: false, message: error.message });
   }
@@ -339,6 +373,10 @@ export const editGroupMessage = async (req, res) => {
     }
 
     if (message.isDeleted || (message.image && !message.text)) {
+      return res.json({ success: false, message: "Cannot edit this message" });
+    }
+
+    if (message.attachment?.url && !message.text) {
       return res.json({ success: false, message: "Cannot edit this message" });
     }
 
@@ -377,6 +415,7 @@ export const deleteGroupMessage = async (req, res) => {
 
     message.text = "";
     message.image = "";
+    message.attachment = undefined;
     message.isDeleted = true;
     message.isEdited = false;
     await message.save();

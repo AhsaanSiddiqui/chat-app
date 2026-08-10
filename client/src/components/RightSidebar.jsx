@@ -33,8 +33,13 @@ const RightSidebar = () => {
   useEffect(() => {
     setMsgImages(
       messages
-        .filter((msg) => msg.image && !msg.isDeleted)
-        .map((msg) => msg.image)
+        .filter(
+          (msg) =>
+            !msg.isDeleted &&
+            (msg.image || msg.attachment?.kind === "image")
+        )
+        .map((msg) => msg.image || msg.attachment?.url)
+        .filter(Boolean)
     );
   }, [messages]);
 

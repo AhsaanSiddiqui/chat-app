@@ -1,6 +1,14 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
 import assets from "../assets/assets";
-import { formatMessageTime, formatSeenTime } from "../lib/utils";
+import {
+  ATTACHMENT_ACCEPT,
+  attachmentLabel,
+  formatFileSize,
+  formatMessageTime,
+  formatSeenTime,
+  getAttachmentKind,
+  MAX_ATTACHMENT_SIZE,
+} from "../lib/utils";
 import { AuthContext } from "../../context/AuthContext";
 import { ChatContext } from "../../context/ChatContext";
 import toast from "react-hot-toast";
@@ -10,6 +18,54 @@ const resolveSenderId = (senderId) => {
   if (!senderId) return "";
   if (typeof senderId === "object") return String(senderId._id);
   return String(senderId);
+};
+
+const FileAttachmentCard = ({ attachment, pending }) => {
+  if (!attachment) return null;
+  const kind = attachment.kind || "file";
+  const href = attachment.url;
+
+  return (
+    <div className="px-3 py-2 min-w-[180px] max-w-[260px]">
+      <div className="flex items-start gap-2">
+        <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-black/25 text-[11px] font-semibold uppercase text-white">
+          {kind === "pdf"
+            ? "PDF"
+            : kind === "excel"
+              ? "XLS"
+              : kind === "doc"
+                ? "DOC"
+                : kind === "zip"
+                  ? "ZIP"
+                  : "FILE"}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm text-white font-medium">
+            {attachment.name || attachmentLabel(kind)}
+          </p>
+          <p className="text-[11px] text-white/70">
+            {pending
+              ? "Uploading..."
+              : [attachmentLabel(kind), formatFileSize(attachment.size)]
+                  .filter(Boolean)
+                  .join(" · ")}
+          </p>
+          {href && !pending && (
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              download={attachment.name}
+              className="mt-1 inline-block text-[11px] text-violet-200 underline hover:text-white"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Download
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const ChatContainer = () => {
@@ -38,7 +94,7 @@ const ChatContainer = () => {
   const [input, setInput] = useState("");
   const [editingMessage, setEditingMessage] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
-  const [pendingImage, setPendingImage] = useState(null);
+  const [pendingAttachment, setPendingAttachment] = useState(null);
   const [menuOpenId, setMenuOpenId] = useState(null);
   const [lightboxImage, setLightboxImage] = useState(null);
 
@@ -56,7 +112,10 @@ const ChatContainer = () => {
 
     setEditingMessage(null);
     setReplyingTo(null);
-    setPendingImage(null);
+    setPendingAttachment((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
     setLightboxImage(null);
     setInput("");
     setMenuOpenId(null);
@@ -83,6 +142,14 @@ const ChatContainer = () => {
     return () => window.removeEventListener("click", closeMenu);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (pendingAttachment?.previewUrl) {
+        URL.revokeObjectURL(pendingAttachment.previewUrl);
+      }
+    };
+  }, [pendingAttachment?.previewUrl]);
+
   const findMember = (userId) => {
     if (!userId) return null;
     if (String(userId) === String(authUser._id)) return authUser;
@@ -107,6 +174,9 @@ const ChatContainer = () => {
     if (!msg) return "";
     if (msg.isDeleted || msg.replyTo?.isDeleted) return "Message deleted";
     if (msg.image || msg.replyTo?.image) return "Photo";
+    if (msg.attachment?.name || msg.replyTo?.fileName) {
+      return msg.attachment?.name || msg.replyTo?.fileName;
+    }
     return msg.text || msg.replyTo?.text || "";
   };
 
@@ -131,6 +201,13 @@ const ChatContainer = () => {
     return `${names.join(" and ")} are typing...`;
   };
 
+  const clearPendingAttachment = () => {
+    setPendingAttachment((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+  };
+
   const handleSendMessage = async (e) => {
     e.preventDefault();
 
@@ -146,14 +223,28 @@ const ChatContainer = () => {
       return;
     }
 
-    if (pendingImage) {
+    if (pendingAttachment) {
       const replyId = replyingTo?._id;
-      const imageData = pendingImage;
-      setPendingImage(null);
+      const pending = pendingAttachment;
+      const caption = input.trim();
+      clearPendingAttachment();
       setReplyingTo(null);
       setInput("");
+
+      if (pending.base64Image) {
+        sendMessage({
+          image: pending.base64Image,
+          text: caption || undefined,
+          ...(replyId ? { replyTo: replyId } : {}),
+        });
+        return;
+      }
+
       sendMessage({
-        image: imageData,
+        file: pending.file,
+        previewUrl: pending.previewUrl,
+        fileKind: pending.kind,
+        text: caption || undefined,
         ...(replyId ? { replyTo: replyId } : {}),
       });
       return;
@@ -186,28 +277,56 @@ const ChatContainer = () => {
     }
   };
 
-  const loadImagePreview = (file) => {
-    if (!file || !file.type.startsWith("image/")) {
-      toast.error("Please paste or select an image");
-      return;
-    }
+  const loadAttachment = (file, { base64Image } = {}) => {
+    if (!file && !base64Image) return;
 
     if (editingMessage) {
-      toast.error("Finish or cancel editing before attaching an image");
+      toast.error("Finish or cancel editing before attaching a file");
       return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPendingImage(reader.result);
-      setTimeout(() => inputRef.current?.focus(), 0);
-    };
-    reader.readAsDataURL(file);
+    if (file && file.size > MAX_ATTACHMENT_SIZE) {
+      toast.error("File too large. Maximum size is 600MB.");
+      return;
+    }
+
+    const kind = file ? getAttachmentKind(file) : "image";
+
+    if (file) {
+      const allowed =
+        kind !== "file" ||
+        /\.(png|jpe?g|webp|gif|bmp|svg|heic|heif|tiff?|ico|avif|pdf|docx?|txt|rtf|odt|xlsx?|csv|ods|zip|rar|7z)$/i.test(
+          file.name
+        );
+      if (!allowed) {
+        toast.error(
+          "Unsupported file. Use images, PDF, Word, Excel, or ZIP."
+        );
+        return;
+      }
+    }
+
+    clearPendingAttachment();
+
+    const previewUrl =
+      kind === "image" && file && !base64Image
+        ? URL.createObjectURL(file)
+        : base64Image || null;
+
+    setPendingAttachment({
+      file: file || null,
+      kind,
+      previewUrl,
+      base64Image: base64Image || null,
+      name: file?.name || "image.jpg",
+      size: file?.size || 0,
+    });
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
-  const handleSendImage = (e) => {
-    const file = e.target.files[0];
-    loadImagePreview(file);
+  const handleSendFile = (e) => {
+    const file = e.target.files?.[0];
+    if (file) loadAttachment(file);
     e.target.value = "";
   };
 
@@ -221,14 +340,21 @@ const ChatContainer = () => {
       if (item.type.startsWith("image/")) {
         e.preventDefault();
         const file = item.getAsFile();
-        if (file) loadImagePreview(file);
+        if (!file) return;
+
+        if (file.size > MAX_ATTACHMENT_SIZE) {
+          toast.error("File too large. Maximum size is 600MB.");
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          loadAttachment(file, { base64Image: reader.result });
+        };
+        reader.readAsDataURL(file);
         return;
       }
     }
-  };
-
-  const cancelPendingImage = () => {
-    setPendingImage(null);
   };
 
   const startReply = (msg) => {
@@ -240,9 +366,9 @@ const ChatContainer = () => {
   };
 
   const startEdit = (msg) => {
-    if (msg.isDeleted || msg.image) return;
+    if (msg.isDeleted || msg.image || msg.attachment?.url) return;
     setReplyingTo(null);
-    setPendingImage(null);
+    clearPendingAttachment();
     setEditingMessage(msg);
     setInput(msg.text || "");
     setMenuOpenId(null);
@@ -309,7 +435,11 @@ const ChatContainer = () => {
       onPaste={handlePaste}
     >
       <div className="flex items-center gap-3 p-4 border-b border-gray-700 flex-shrink-0">
-        <img src={headerPic} alt="" className="w-10 h-10 rounded-full object-cover" />
+        <img
+          src={headerPic}
+          alt=""
+          className="w-10 h-10 rounded-full object-cover"
+        />
 
         <div className="flex-1 min-w-0">
           <p className="text-white font-medium truncate">{headerTitle}</p>
@@ -368,8 +498,7 @@ const ChatContainer = () => {
                 const isPending =
                   !!msg.pending || String(msg._id).startsWith("temp-");
                 const sender = getSenderProfile(msg);
-                const avatarSrc =
-                  sender?.profilePic || assets.avatar_icon;
+                const avatarSrc = sender?.profilePic || assets.avatar_icon;
                 const showSeenTime =
                   !isGroupChat &&
                   isMine &&
@@ -379,6 +508,17 @@ const ChatContainer = () => {
                 const groupSeenCount = Array.isArray(msg.seenBy)
                   ? msg.seenBy.length
                   : 0;
+                const imageUrl =
+                  msg.image ||
+                  (msg.attachment?.kind === "image" ? msg.attachment.url : "");
+                const nonImageAttachment =
+                  msg.attachment?.url && msg.attachment?.kind !== "image"
+                    ? msg.attachment
+                    : msg.attachment?.name && !imageUrl
+                      ? msg.attachment
+                      : null;
+                const canEdit =
+                  isMine && !msg.image && !msg.attachment?.url && !msg.isDeleted;
 
                 return (
                   <div
@@ -440,7 +580,7 @@ const ChatContainer = () => {
                               >
                                 Reply
                               </button>
-                              {isMine && !msg.image && (
+                              {canEdit && (
                                 <button
                                   type="button"
                                   className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
@@ -497,23 +637,34 @@ const ChatContainer = () => {
                                   ? "Message deleted"
                                   : msg.replyTo.image
                                     ? "Photo"
-                                    : msg.replyTo.text || ""}
+                                    : msg.replyTo.fileName
+                                      ? msg.replyTo.fileName
+                                      : msg.replyTo.text || ""}
                               </p>
                             </button>
                           )}
 
-                          {msg.image ? (
+                          {imageUrl ? (
                             <img
-                              src={msg.image}
+                              src={imageUrl}
                               alt=""
-                              onClick={() => setLightboxImage(msg.image)}
+                              onClick={() => setLightboxImage(imageUrl)}
                               className="rounded-lg max-w-[220px] block cursor-zoom-in hover:opacity-95 transition"
                             />
-                          ) : (
+                          ) : null}
+
+                          {nonImageAttachment ? (
+                            <FileAttachmentCard
+                              attachment={nonImageAttachment}
+                              pending={isPending && !nonImageAttachment.url}
+                            />
+                          ) : null}
+
+                          {msg.text ? (
                             <div className="px-3 py-2 break-words text-white">
                               {msg.text}
                             </div>
-                          )}
+                          ) : null}
                         </div>
                       )}
 
@@ -651,26 +802,51 @@ const ChatContainer = () => {
           </div>
         )}
 
-        {pendingImage && !editingMessage && (
+        {pendingAttachment && !editingMessage && (
           <div className="mx-1 mb-2 p-2 rounded-xl bg-white/10 border border-white/10">
             <div className="flex items-start justify-between gap-2 mb-2">
-              <p className="text-xs text-violet-300">Image ready to send</p>
+              <p className="text-xs text-violet-300">
+                {pendingAttachment.kind === "image"
+                  ? "Image ready to send"
+                  : "File ready to send"}
+              </p>
               <button
                 type="button"
                 className="text-gray-300 hover:text-white text-sm"
-                onClick={cancelPendingImage}
+                onClick={clearPendingAttachment}
               >
                 ✕
               </button>
             </div>
-            <img
-              src={pendingImage}
-              alt="Preview"
-              onClick={() => setLightboxImage(pendingImage)}
-              className="max-h-40 rounded-lg object-contain cursor-zoom-in"
-            />
+
+            {pendingAttachment.kind === "image" &&
+            (pendingAttachment.previewUrl || pendingAttachment.base64Image) ? (
+              <img
+                src={
+                  pendingAttachment.previewUrl || pendingAttachment.base64Image
+                }
+                alt="Preview"
+                onClick={() =>
+                  setLightboxImage(
+                    pendingAttachment.previewUrl ||
+                      pendingAttachment.base64Image
+                  )
+                }
+                className="max-h-40 rounded-lg object-contain cursor-zoom-in"
+              />
+            ) : (
+              <FileAttachmentCard
+                attachment={{
+                  name: pendingAttachment.name,
+                  size: pendingAttachment.size,
+                  kind: pendingAttachment.kind,
+                }}
+                pending
+              />
+            )}
+
             <p className="text-[11px] text-gray-400 mt-2">
-              Press send to share, or ✕ to cancel
+              Max 600MB · Press send to share, or ✕ to cancel
             </p>
           </div>
         )}
@@ -682,11 +858,11 @@ const ChatContainer = () => {
             placeholder={
               editingMessage
                 ? "Edit your message..."
-                : pendingImage
-                  ? "Add a caption? (optional — press send for image)"
+                : pendingAttachment
+                  ? "Add a caption? (optional)"
                   : replyingTo
                     ? "Type a reply..."
-                    : "Type a message... (paste image with Ctrl+V)"
+                    : "Type a message... (attach files or paste image)"
             }
             className="flex-1 bg-transparent outline-none text-white py-3 placeholder-gray-400"
             value={input}
@@ -700,13 +876,13 @@ const ChatContainer = () => {
             <>
               <input
                 type="file"
-                id="image"
+                id="chat-attachment"
                 hidden
-                accept="image/*"
-                onChange={handleSendImage}
+                accept={ATTACHMENT_ACCEPT}
+                onChange={handleSendFile}
               />
 
-              <label htmlFor="image">
+              <label htmlFor="chat-attachment" title="Attach file">
                 <img
                   src={assets.gallery_icon}
                   alt=""
