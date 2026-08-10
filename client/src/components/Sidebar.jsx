@@ -25,7 +25,7 @@ const {
 
   useEffect(()=>{
     getUsers();
-  },[onlineUsers])
+  },[])
 
  return (
   <div

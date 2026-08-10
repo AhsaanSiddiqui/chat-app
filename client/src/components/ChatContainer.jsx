@@ -17,6 +17,7 @@ const ChatContainer = () => {
     isOtherUserTyping,
     startTyping,
     stopTyping,
+    messagesLoading,
   } = useContext(ChatContext);
 
   const { authUser, onlineUsers } = useContext(AuthContext);
@@ -29,7 +30,7 @@ const ChatContainer = () => {
   const [menuOpenId, setMenuOpenId] = useState(null);
 
   useEffect(() => {
-    if (selectedUser) {
+    if (selectedUser?._id) {
       getMessages(selectedUser._id);
       setEditingMessage(null);
       setReplyingTo(null);
@@ -37,13 +38,13 @@ const ChatContainer = () => {
       setMenuOpenId(null);
       stopTyping();
     }
-  }, [selectedUser]);
+  }, [selectedUser?._id]);
 
   useEffect(() => {
-    if (scrollEnd.current) {
-      scrollEnd.current.scrollIntoView({ behavior: "smooth" });
+    if (scrollEnd.current && !messagesLoading) {
+      scrollEnd.current.scrollIntoView({ behavior: "auto" });
     }
-  }, [messages, isOtherUserTyping]);
+  }, [messages, isOtherUserTyping, messagesLoading, selectedUser?._id]);
 
   useEffect(() => {
     const closeMenu = () => setMenuOpenId(null);
@@ -227,6 +228,11 @@ const ChatContainer = () => {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {messagesLoading && messages.length === 0 ? (
+          <div className="h-full flex items-center justify-center">
+            <p className="text-sm text-gray-400">Loading messages...</p>
+          </div>
+        ) : (
         <div className="flex flex-col gap-3">
           {messages.map((msg) => {
             const isMine = String(msg.senderId) === String(authUser._id);
@@ -398,6 +404,7 @@ const ChatContainer = () => {
 
           <div ref={scrollEnd}></div>
         </div>
+        )}
 
         {isOtherUserTyping && (
           <div className="flex items-end gap-2 mt-2">

@@ -49,18 +49,19 @@ export const getMessages = async (req, res) => {
         const { id: selectedUserId } = req.params;
         const myId = req.user._id;
 
-        const messages = await Message.find({
-            $or: [
-                { senderId: myId, receiverId: selectedUserId },
-                { senderId: selectedUserId, receiverId: myId },
-            ]
-        });
-
-        const unseen = await Message.find({
-            senderId: selectedUserId,
-            receiverId: myId,
-            seen: false,
-        }).select("_id");
+        const [messages, unseen] = await Promise.all([
+            Message.find({
+                $or: [
+                    { senderId: myId, receiverId: selectedUserId },
+                    { senderId: selectedUserId, receiverId: myId },
+                ],
+            }),
+            Message.find({
+                senderId: selectedUserId,
+                receiverId: myId,
+                seen: false,
+            }).select("_id"),
+        ]);
 
         if (unseen.length > 0) {
             const ids = unseen.map((m) => m._id);

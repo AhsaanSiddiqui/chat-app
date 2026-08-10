@@ -14,6 +14,7 @@ export const ChatProvider = ({ children }) => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [unseenMessages, setUnseenMessages] = useState({});
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState(false);
 
   const { socket, axios, authUser } = useContext(AuthContext);
 
@@ -21,6 +22,8 @@ export const ChatProvider = ({ children }) => {
   const selectedUserRef = useRef(selectedUser);
   const setSelectedUserRef = useRef(setSelectedUser);
   const messagesRef = useRef(messages);
+  const messageCacheRef = useRef({});
+  const messagesAbortRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
 
@@ -39,6 +42,13 @@ export const ChatProvider = ({ children }) => {
   useEffect(() => {
     setSelectedUserRef.current = setSelectedUser;
   }, [setSelectedUser]);
+
+  // Keep open-chat cache in sync with live message updates
+  useEffect(() => {
+    const userId = selectedUser?._id;
+    if (!userId || messagesLoading) return;
+    messageCacheRef.current[userId] = messages;
+  }, [messages, selectedUser?._id, messagesLoading]);
 
   // Clear typing when switching chats
   useEffect(() => {
@@ -98,10 +108,36 @@ export const ChatProvider = ({ children }) => {
   };
 
   const getMessages = async (userId) => {
+    if (!userId) return;
+
+    const cached = messageCacheRef.current[userId];
+    if (cached) {
+      setMessages(cached);
+      setMessagesLoading(false);
+    } else {
+      setMessages([]);
+      setMessagesLoading(true);
+    }
+
+    if (messagesAbortRef.current) {
+      messagesAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    messagesAbortRef.current = controller;
+
     try {
-      const { data } = await axios.get(`/api/messages/${userId}`);
+      const { data } = await axios.get(`/api/messages/${userId}`, {
+        signal: controller.signal,
+      });
+
       if (data.success) {
-        setMessages(data.messages);
+        messageCacheRef.current[userId] = data.messages;
+
+        if (String(selectedUserRef.current?._id) === String(userId)) {
+          setMessages(data.messages);
+          setMessagesLoading(false);
+        }
+
         setUnseenMessages((prev) => {
           const next = { ...prev };
           delete next[userId];
@@ -109,6 +145,16 @@ export const ChatProvider = ({ children }) => {
         });
       }
     } catch (error) {
+      if (
+        error.code === "ERR_CANCELED" ||
+        error.name === "CanceledError" ||
+        error.name === "AbortError"
+      ) {
+        return;
+      }
+      if (String(selectedUserRef.current?._id) === String(userId)) {
+        setMessagesLoading(false);
+      }
       toast.error(error.message);
     }
   };
@@ -262,6 +308,15 @@ export const ChatProvider = ({ children }) => {
         axios.put(`/api/messages/mark/${newMessage._id}`);
         setIsOtherUserTyping(false);
       } else {
+        // Keep inactive chat cache fresh so opening it feels instant
+        const chatId = String(newMessage.senderId);
+        if (messageCacheRef.current[chatId]) {
+          messageCacheRef.current[chatId] = [
+            ...messageCacheRef.current[chatId],
+            newMessage,
+          ];
+        }
+
         setUnseenMessages((prevUnseenMessages) => ({
           ...prevUnseenMessages,
           [newMessage.senderId]: prevUnseenMessages[newMessage.senderId]
@@ -348,6 +403,7 @@ export const ChatProvider = ({ children }) => {
     isOtherUserTyping,
     startTyping,
     stopTyping,
+    messagesLoading,
   };
 
   return (
