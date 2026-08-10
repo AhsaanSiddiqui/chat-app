@@ -243,7 +243,7 @@ const ChatContainer = () => {
                   />
                 )}
 
-                <div className={`max-w-xs relative ${isMine ? "items-end" : "items-start"}`}>
+                <div className={`max-w-lg relative ${isMine ? "items-end" : "items-start"}`}>
                   {!msg.isDeleted && (
                     <div
                       className={`absolute -top-1 opacity-0 group-hover:opacity-100 transition-opacity ${
@@ -352,14 +352,24 @@ const ChatContainer = () => {
                   )}
 
                   <p
-                    className={`text-[10px] text-gray-400 mt-1 ${
-                      isMine ? "text-right" : "text-left"
+                    className={`text-[10px] text-gray-400 mt-1 flex items-center gap-1 ${
+                      isMine ? "justify-end" : "justify-start"
                     }`}
                   >
                     {msg.isEdited && !msg.isDeleted && (
-                      <span className="mr-1 italic">edited</span>
+                      <span className="italic">edited</span>
                     )}
-                    {formatMessageTime(msg.createdAt)}
+                    <span>{formatMessageTime(msg.createdAt)}</span>
+                    {isMine && !msg.isDeleted && (
+                      <span
+                        className={`ml-0.5 tracking-tighter ${
+                          msg.seen ? "text-sky-400" : "text-gray-400"
+                        }`}
+                        title={msg.seen ? "Read" : "Sent"}
+                      >
+                        {msg.seen ? "✓✓" : "✓"}
+                      </span>
+                    )}
                   </p>
                 </div>
 

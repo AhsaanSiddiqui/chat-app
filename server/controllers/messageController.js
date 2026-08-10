@@ -54,29 +54,71 @@ export const getMessages = async (req, res) => {
                 { senderId: myId, receiverId: selectedUserId },
                 { senderId: selectedUserId, receiverId: myId },
             ]
-        })
-        await Message.updateMany({ senderId: selectedUserId, receiverId: myId },
-            { seen: true });
-        res.json({ success: true, messages })
+        });
 
+        const unseen = await Message.find({
+            senderId: selectedUserId,
+            receiverId: myId,
+            seen: false,
+        }).select("_id");
 
+        if (unseen.length > 0) {
+            const ids = unseen.map((m) => m._id);
+            await Message.updateMany({ _id: { $in: ids } }, { seen: true });
+
+            const senderSocketId = userSocketMap[String(selectedUserId)];
+            if (senderSocketId) {
+                io.to(senderSocketId).emit("messagesSeen", {
+                    chatUserId: String(myId),
+                    messageIds: ids.map(String),
+                });
+            }
+        }
+
+        const updatedMessages = messages.map((m) => {
+            const obj = m.toObject();
+            if (
+                String(obj.senderId) === String(selectedUserId) &&
+                String(obj.receiverId) === String(myId)
+            ) {
+                obj.seen = true;
+            }
+            return obj;
+        });
+
+        res.json({ success: true, messages: updatedMessages });
     } catch (error) {
-        console.log(error.message)
-        res.json({ success: false, message: error.message })
+        console.log(error.message);
+        res.json({ success: false, message: error.message });
     }
-}
+};
 
 // api to mark message as seen using message id
 export const markMessageAsSeen = async (req, res) => {
     try {
         const { id } = req.params;
-        await Message.findByIdAndUpdate(id, { seen: true })
-        res.json({ success: true })
+        const message = await Message.findByIdAndUpdate(
+            id,
+            { seen: true },
+            { new: true }
+        );
+
+        if (message) {
+            const senderSocketId = userSocketMap[String(message.senderId)];
+            if (senderSocketId) {
+                io.to(senderSocketId).emit("messagesSeen", {
+                    chatUserId: String(message.receiverId),
+                    messageIds: [String(message._id)],
+                });
+            }
+        }
+
+        res.json({ success: true });
     } catch (error) {
-        console.log(error.message)
-        res.json({ success: false, message: error.message })
+        console.log(error.message);
+        res.json({ success: false, message: error.message });
     }
-}
+};
 
 // send message to selected user
 export const sendMessage = async (req, res) => {

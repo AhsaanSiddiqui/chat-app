@@ -97,6 +97,11 @@ export const ChatProvider = ({ children }) => {
       const { data } = await axios.get(`/api/messages/${userId}`);
       if (data.success) {
         setMessages(data.messages);
+        setUnseenMessages((prev) => {
+          const next = { ...prev };
+          delete next[userId];
+          return next;
+        });
       }
     } catch (error) {
       toast.error(error.message);
@@ -248,16 +253,35 @@ export const ChatProvider = ({ children }) => {
       }
     };
 
+    const onMessagesSeen = ({ chatUserId, messageIds }) => {
+      const currentSelected = selectedUserRef.current;
+      if (
+        !currentSelected ||
+        String(currentSelected._id) !== String(chatUserId)
+      ) {
+        return;
+      }
+
+      const idSet = new Set((messageIds || []).map(String));
+      setMessages((prev) =>
+        prev.map((msg) =>
+          idSet.has(String(msg._id)) ? { ...msg, seen: true } : msg
+        )
+      );
+    };
+
     socket.on("newMessage", onNewMessage);
     socket.on("messageUpdated", onMessageUpdated);
     socket.on("messageDeleted", onMessageDeleted);
     socket.on("typing", onTyping);
+    socket.on("messagesSeen", onMessagesSeen);
 
     return () => {
       socket.off("newMessage", onNewMessage);
       socket.off("messageUpdated", onMessageUpdated);
       socket.off("messageDeleted", onMessageDeleted);
       socket.off("typing", onTyping);
+      socket.off("messagesSeen", onMessagesSeen);
     };
   }, [socket, axios]);
 
