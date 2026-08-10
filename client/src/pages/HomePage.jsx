@@ -7,7 +7,8 @@ import { ensureNotificationPermission } from '../lib/notifications';
 
 const HomePage = () => {
 
-  const { selectedUser } = useContext(ChatContext)
+  const { selectedUser, selectedGroup } = useContext(ChatContext)
+  const hasOpenChat = !!(selectedUser || selectedGroup)
 
   useEffect(() => {
     ensureNotificationPermission();
@@ -16,7 +17,7 @@ const HomePage = () => {
   return (
     <div className=" w-full h-screen ">
       <div className={`backdrop-blur-xl  overflow-hidden h-full grid
-      ${selectedUser
+      ${hasOpenChat
           ? "grid-cols-1 md:grid-cols-[22%_63%_15%]"
           : "grid-cols-1 md:grid-cols-[30%_70%]"
         }`} >

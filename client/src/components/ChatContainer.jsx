@@ -6,16 +6,26 @@ import { ChatContext } from "../../context/ChatContext";
 import toast from "react-hot-toast";
 import ImageLightbox from "./ImageLightbox";
 
+const resolveSenderId = (senderId) => {
+  if (!senderId) return "";
+  if (typeof senderId === "object") return String(senderId._id);
+  return String(senderId);
+};
+
 const ChatContainer = () => {
   const {
     messages,
     selectedUser,
+    selectedGroup,
     setSelectedUser,
+    setSelectedGroup,
     sendMessage,
     editMessage,
     deleteMessage,
     getMessages,
+    getGroupMessages,
     isOtherUserTyping,
+    groupTypingUsers,
     startTyping,
     stopTyping,
     messagesLoading,
@@ -32,30 +42,65 @@ const ChatContainer = () => {
   const [menuOpenId, setMenuOpenId] = useState(null);
   const [lightboxImage, setLightboxImage] = useState(null);
 
+  const activeChat = selectedGroup || selectedUser;
+  const isGroupChat = !!selectedGroup;
+
   useEffect(() => {
     if (selectedUser?._id) {
       getMessages(selectedUser._id);
-      setEditingMessage(null);
-      setReplyingTo(null);
-      setPendingImage(null);
-      setLightboxImage(null);
-      setInput("");
-      setMenuOpenId(null);
-      stopTyping();
+    } else if (selectedGroup?._id) {
+      getGroupMessages(selectedGroup._id);
+    } else {
+      return;
     }
-  }, [selectedUser?._id]);
+
+    setEditingMessage(null);
+    setReplyingTo(null);
+    setPendingImage(null);
+    setLightboxImage(null);
+    setInput("");
+    setMenuOpenId(null);
+    stopTyping();
+  }, [selectedUser?._id, selectedGroup?._id]);
 
   useEffect(() => {
     if (scrollEnd.current && !messagesLoading) {
       scrollEnd.current.scrollIntoView({ behavior: "auto" });
     }
-  }, [messages, isOtherUserTyping, messagesLoading, selectedUser?._id]);
+  }, [
+    messages,
+    isOtherUserTyping,
+    groupTypingUsers,
+    messagesLoading,
+    selectedUser?._id,
+    selectedGroup?._id,
+  ]);
 
   useEffect(() => {
     const closeMenu = () => setMenuOpenId(null);
     window.addEventListener("click", closeMenu);
     return () => window.removeEventListener("click", closeMenu);
   }, []);
+
+  const findMember = (userId) => {
+    if (!userId) return null;
+    if (String(userId) === String(authUser._id)) return authUser;
+    return (
+      selectedGroup?.members?.find(
+        (m) => resolveSenderId(m) === String(userId)
+      ) || null
+    );
+  };
+
+  const getSenderProfile = (msg) => {
+    if (typeof msg.senderId === "object" && msg.senderId?._id) {
+      return msg.senderId;
+    }
+    const sid = resolveSenderId(msg.senderId);
+    if (sid === String(authUser._id)) return authUser;
+    if (selectedUser && sid === String(selectedUser._id)) return selectedUser;
+    return findMember(sid);
+  };
 
   const getReplyLabel = (msg) => {
     if (!msg) return "";
@@ -66,8 +111,23 @@ const ChatContainer = () => {
 
   const getReplySenderName = (reply) => {
     if (!reply?.senderId) return "Message";
-    if (String(reply.senderId) === String(authUser._id)) return "You";
-    return selectedUser.fullName;
+    if (resolveSenderId(reply.senderId) === String(authUser._id)) return "You";
+    if (isGroupChat) {
+      return findMember(reply.senderId)?.fullName || "Member";
+    }
+    return selectedUser?.fullName || "User";
+  };
+
+  const groupTypingLabel = () => {
+    if (!groupTypingUsers.length) return "";
+    const names = groupTypingUsers
+      .map((id) => findMember(id)?.fullName || "Someone")
+      .slice(0, 2);
+    if (groupTypingUsers.length > 2) {
+      return `${names.join(", ")} and others are typing...`;
+    }
+    if (names.length === 1) return `${names[0]} is typing...`;
+    return `${names.join(" and ")} are typing...`;
   };
 
   const handleSendMessage = async (e) => {
@@ -85,7 +145,6 @@ const ChatContainer = () => {
       return;
     }
 
-    // Send pending pasted/selected image
     if (pendingImage) {
       const replyId = replyingTo?._id;
       const imageData = pendingImage;
@@ -220,7 +279,12 @@ const ChatContainer = () => {
     }
   };
 
-  if (!selectedUser) {
+  const closeChat = () => {
+    if (selectedGroup) setSelectedGroup(null);
+    else setSelectedUser(null);
+  };
+
+  if (!activeChat) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 text-gray-500 bg-white/10 h-full max-md:hidden">
         <img src={assets.logo_icon} className="max-w-[230px]" alt="" />
@@ -231,23 +295,34 @@ const ChatContainer = () => {
     );
   }
 
+  const headerTitle = isGroupChat ? selectedGroup.name : selectedUser.fullName;
+  const headerPic = isGroupChat
+    ? selectedGroup.groupPic || assets.avatar_icon
+    : selectedUser.profilePic || assets.avatar_icon;
+  const showGroupTyping = isGroupChat && groupTypingUsers.length > 0;
+  const showDmTyping = !isGroupChat && isOtherUserTyping;
+
   return (
     <div
       className="flex flex-col h-full overflow-hidden backdrop-blur-lg"
       onPaste={handlePaste}
     >
       <div className="flex items-center gap-3 p-4 border-b border-gray-700 flex-shrink-0">
-        <img
-          src={selectedUser.profilePic || assets.avatar_icon}
-          alt=""
-          className="w-10 h-10 rounded-full"
-        />
+        <img src={headerPic} alt="" className="w-10 h-10 rounded-full object-cover" />
 
-        <div className="flex-1">
-          <p className="text-white font-medium">{selectedUser.fullName}</p>
+        <div className="flex-1 min-w-0">
+          <p className="text-white font-medium truncate">{headerTitle}</p>
 
-          {isOtherUserTyping ? (
+          {showGroupTyping ? (
+            <p className="text-green-400 text-xs italic truncate">
+              {groupTypingLabel()}
+            </p>
+          ) : showDmTyping ? (
             <p className="text-green-400 text-xs italic">typing...</p>
+          ) : isGroupChat ? (
+            <p className="text-gray-400 text-xs">
+              {selectedGroup.members?.length || 0} members
+            </p>
           ) : onlineUsers.includes(selectedUser._id) ? (
             <p className="text-green-400 text-xs">Online</p>
           ) : (
@@ -258,7 +333,7 @@ const ChatContainer = () => {
         <img
           src={assets.arrow_icon}
           alt=""
-          onClick={() => setSelectedUser(null)}
+          onClick={closeChat}
           className="w-6 cursor-pointer md:hidden"
         />
 
@@ -271,217 +346,266 @@ const ChatContainer = () => {
             <p className="text-sm text-gray-400">Loading messages...</p>
           </div>
         ) : (
-        <div className="flex flex-col gap-3">
-          {(() => {
-            const lastSeenOwnId = [...messages]
-              .reverse()
-              .find(
-                (m) =>
-                  String(m.senderId) === String(authUser._id) &&
-                  m.seen &&
-                  !m.isDeleted &&
-                  !m.pending &&
-                  !String(m._id).startsWith("temp-")
-              )?._id;
+          <div className="flex flex-col gap-3">
+            {(() => {
+              const lastSeenOwnId = !isGroupChat
+                ? [...messages]
+                    .reverse()
+                    .find(
+                      (m) =>
+                        resolveSenderId(m.senderId) === String(authUser._id) &&
+                        m.seen &&
+                        !m.isDeleted &&
+                        !m.pending &&
+                        !String(m._id).startsWith("temp-")
+                    )?._id
+                : null;
 
-            return messages.map((msg) => {
-            const isMine = String(msg.senderId) === String(authUser._id);
-            const isPending = !!msg.pending || String(msg._id).startsWith("temp-");
-            const avatarSrc = isMine
-              ? authUser.profilePic || assets.avatar_icon
-              : selectedUser.profilePic || assets.avatar_icon;
-            const showSeenTime =
-              isMine &&
-              msg.seen &&
-              msg.seenAt &&
-              String(msg._id) === String(lastSeenOwnId);
+              return messages.map((msg) => {
+                const senderId = resolveSenderId(msg.senderId);
+                const isMine = senderId === String(authUser._id);
+                const isPending =
+                  !!msg.pending || String(msg._id).startsWith("temp-");
+                const sender = getSenderProfile(msg);
+                const avatarSrc =
+                  sender?.profilePic || assets.avatar_icon;
+                const showSeenTime =
+                  !isGroupChat &&
+                  isMine &&
+                  msg.seen &&
+                  msg.seenAt &&
+                  String(msg._id) === String(lastSeenOwnId);
+                const groupSeenCount = Array.isArray(msg.seenBy)
+                  ? msg.seenBy.length
+                  : 0;
 
-            return (
-              <div
-                key={msg._id}
-                id={`msg-${msg._id}`}
-                className={`flex group items-end gap-2 rounded-lg transition-shadow ${isMine ? "justify-end" : "justify-start"} ${isPending ? "opacity-80" : ""}`}
-              >
-                {!isMine && (
-                  <img
-                    src={avatarSrc}
-                    alt=""
-                    className="w-8 h-8 rounded-full object-cover flex-shrink-0 mb-4"
-                  />
-                )}
+                return (
+                  <div
+                    key={msg._id}
+                    id={`msg-${msg._id}`}
+                    className={`flex group items-end gap-2 rounded-lg transition-shadow ${
+                      isMine ? "justify-end" : "justify-start"
+                    } ${isPending ? "opacity-80" : ""}`}
+                  >
+                    {!isMine && (
+                      <img
+                        src={avatarSrc}
+                        alt=""
+                        className="w-8 h-8 rounded-full object-cover flex-shrink-0 mb-4"
+                      />
+                    )}
 
-                <div className={`max-w-lg relative ${isMine ? "items-end" : "items-start"}`}>
-                  {!msg.isDeleted && !isPending && (
                     <div
-                      className={`absolute -top-1 opacity-0 group-hover:opacity-100 transition-opacity ${
-                        isMine ? "-left-8" : "-right-8"
+                      className={`max-w-lg relative ${
+                        isMine ? "items-end" : "items-start"
                       }`}
                     >
-                      <button
-                        type="button"
-                        className="text-gray-300 hover:text-white text-lg px-1"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setMenuOpenId(
-                            menuOpenId === msg._id ? null : msg._id
-                          );
-                        }}
-                      >
-                        ⋮
-                      </button>
+                      {isGroupChat && !isMine && (
+                        <p className="text-[11px] text-violet-300 mb-0.5 ml-1">
+                          {sender?.fullName || "Member"}
+                        </p>
+                      )}
 
-                      {menuOpenId === msg._id && (
+                      {!msg.isDeleted && !isPending && (
                         <div
-                          className={`absolute top-6 z-20 min-w-[110px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden ${
-                            isMine ? "left-0" : "right-0"
+                          className={`absolute -top-1 opacity-0 group-hover:opacity-100 transition-opacity ${
+                            isMine ? "-left-8" : "-right-8"
                           }`}
-                          onClick={(e) => e.stopPropagation()}
                         >
                           <button
                             type="button"
-                            className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
-                            onClick={() => startReply(msg)}
+                            className="text-gray-300 hover:text-white text-lg px-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenuOpenId(
+                                menuOpenId === msg._id ? null : msg._id
+                              );
+                            }}
                           >
-                            Reply
+                            ⋮
                           </button>
-                          {isMine && !msg.image && (
-                            <button
-                              type="button"
-                              className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
-                              onClick={() => startEdit(msg)}
+
+                          {menuOpenId === msg._id && (
+                            <div
+                              className={`absolute top-6 z-20 min-w-[110px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden ${
+                                isMine ? "left-0" : "right-0"
+                              }`}
+                              onClick={(e) => e.stopPropagation()}
                             >
-                              Edit
-                            </button>
-                          )}
-                          {isMine && (
-                            <button
-                              type="button"
-                              className="block w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-800"
-                              onClick={() => handleDelete(msg)}
-                            >
-                              Delete
-                            </button>
+                              <button
+                                type="button"
+                                className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
+                                onClick={() => startReply(msg)}
+                              >
+                                Reply
+                              </button>
+                              {isMine && !msg.image && (
+                                <button
+                                  type="button"
+                                  className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
+                                  onClick={() => startEdit(msg)}
+                                >
+                                  Edit
+                                </button>
+                              )}
+                              {isMine && (
+                                <button
+                                  type="button"
+                                  className="block w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-800"
+                                  onClick={() => handleDelete(msg)}
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       )}
-                    </div>
-                  )}
 
-                  {msg.isDeleted ? (
-                    <div
-                      className={`px-3 py-2 rounded-xl italic text-gray-400 ${
-                        isMine ? "bg-violet-600/40" : "bg-gray-700/60"
-                      }`}
-                    >
-                      This message was deleted
-                    </div>
-                  ) : (
-                    <div
-                      className={`rounded-xl overflow-hidden ${
-                        isMine ? "bg-violet-600" : "bg-gray-700"
-                      }`}
-                    >
-                      {msg.replyTo?.messageId && (
-                        <button
-                          type="button"
-                          onClick={() => scrollToMessage(msg.replyTo.messageId)}
-                          className={`w-full text-left px-3 pt-2 pb-1 border-l-2 ${
-                            isMine
-                              ? "border-violet-200 bg-black/20"
-                              : "border-violet-400 bg-black/20"
+                      {msg.isDeleted ? (
+                        <div
+                          className={`px-3 py-2 rounded-xl italic text-gray-400 ${
+                            isMine ? "bg-violet-600/40" : "bg-gray-700/60"
                           }`}
                         >
-                          <p className="text-[11px] font-medium text-violet-200">
-                            {getReplySenderName(msg.replyTo)}
-                          </p>
-                          <p className="text-[11px] text-gray-300 truncate">
-                            {msg.replyTo.isDeleted
-                              ? "Message deleted"
-                              : msg.replyTo.image
-                                ? "Photo"
-                                : msg.replyTo.text || ""}
-                          </p>
-                        </button>
-                      )}
-
-                      {msg.image ? (
-                        <img
-                          src={msg.image}
-                          alt=""
-                          onClick={() => setLightboxImage(msg.image)}
-                          className="rounded-lg max-w-[220px] block cursor-zoom-in hover:opacity-95 transition"
-                        />
+                          This message was deleted
+                        </div>
                       ) : (
-                        <div className="px-3 py-2 break-words text-white">
-                          {msg.text}
+                        <div
+                          className={`rounded-xl overflow-hidden ${
+                            isMine ? "bg-violet-600" : "bg-gray-700"
+                          }`}
+                        >
+                          {msg.replyTo?.messageId && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                scrollToMessage(msg.replyTo.messageId)
+                              }
+                              className={`w-full text-left px-3 pt-2 pb-1 border-l-2 ${
+                                isMine
+                                  ? "border-violet-200 bg-black/20"
+                                  : "border-violet-400 bg-black/20"
+                              }`}
+                            >
+                              <p className="text-[11px] font-medium text-violet-200">
+                                {getReplySenderName(msg.replyTo)}
+                              </p>
+                              <p className="text-[11px] text-gray-300 truncate">
+                                {msg.replyTo.isDeleted
+                                  ? "Message deleted"
+                                  : msg.replyTo.image
+                                    ? "Photo"
+                                    : msg.replyTo.text || ""}
+                              </p>
+                            </button>
+                          )}
+
+                          {msg.image ? (
+                            <img
+                              src={msg.image}
+                              alt=""
+                              onClick={() => setLightboxImage(msg.image)}
+                              className="rounded-lg max-w-[220px] block cursor-zoom-in hover:opacity-95 transition"
+                            />
+                          ) : (
+                            <div className="px-3 py-2 break-words text-white">
+                              {msg.text}
+                            </div>
+                          )}
                         </div>
                       )}
-                    </div>
-                  )}
 
-                  <p
-                    className={`text-[10px] text-gray-400 mt-1 flex items-center gap-1 ${
-                      isMine ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    {msg.isEdited && !msg.isDeleted && (
-                      <span className="italic">edited</span>
-                    )}
-                    <span>{formatMessageTime(msg.createdAt)}</span>
-                    {isMine && !msg.isDeleted && (
-                      <span
-                        className={`ml-0.5 tracking-tighter ${
-                          isPending
-                            ? "text-gray-500"
-                            : msg.seen
-                              ? "text-sky-400"
-                              : "text-gray-400"
+                      <p
+                        className={`text-[10px] text-gray-400 mt-1 flex items-center gap-1 ${
+                          isMine ? "justify-end" : "justify-start"
                         }`}
-                        title={
-                          isPending
-                            ? "Sending..."
-                            : msg.seen
-                              ? formatSeenTime(msg.seenAt, msg.createdAt)
-                              : "Sent"
-                        }
                       >
-                        {isPending ? "◷" : msg.seen ? "✓✓" : "✓"}
-                      </span>
+                        {msg.isEdited && !msg.isDeleted && (
+                          <span className="italic">edited</span>
+                        )}
+                        <span>{formatMessageTime(msg.createdAt)}</span>
+                        {isMine && !msg.isDeleted && !isGroupChat && (
+                          <span
+                            className={`ml-0.5 tracking-tighter ${
+                              isPending
+                                ? "text-gray-500"
+                                : msg.seen
+                                  ? "text-sky-400"
+                                  : "text-gray-400"
+                            }`}
+                            title={
+                              isPending
+                                ? "Sending..."
+                                : msg.seen
+                                  ? formatSeenTime(msg.seenAt, msg.createdAt)
+                                  : "Sent"
+                            }
+                          >
+                            {isPending ? "◷" : msg.seen ? "✓✓" : "✓"}
+                          </span>
+                        )}
+                        {isMine && !msg.isDeleted && isGroupChat && (
+                          <span
+                            className={`ml-0.5 tracking-tighter ${
+                              isPending
+                                ? "text-gray-500"
+                                : groupSeenCount > 1
+                                  ? "text-sky-400"
+                                  : "text-gray-400"
+                            }`}
+                            title={
+                              isPending
+                                ? "Sending..."
+                                : `Seen by ${Math.max(groupSeenCount - 1, 0)}`
+                            }
+                          >
+                            {isPending
+                              ? "◷"
+                              : groupSeenCount > 1
+                                ? "✓✓"
+                                : "✓"}
+                          </span>
+                        )}
+                      </p>
+
+                      {showSeenTime && (
+                        <p className="text-[10px] text-sky-400 mt-0.5 text-right">
+                          {formatSeenTime(msg.seenAt, msg.createdAt)}
+                        </p>
+                      )}
+                    </div>
+
+                    {isMine && (
+                      <img
+                        src={avatarSrc}
+                        alt=""
+                        className="w-8 h-8 rounded-full object-cover flex-shrink-0 mb-4"
+                      />
                     )}
-                  </p>
+                  </div>
+                );
+              });
+            })()}
 
-                  {showSeenTime && (
-                    <p className="text-[10px] text-sky-400 mt-0.5 text-right">
-                      {formatSeenTime(msg.seenAt, msg.createdAt)}
-                    </p>
-                  )}
-                </div>
-
-                {isMine && (
-                  <img
-                    src={avatarSrc}
-                    alt=""
-                    className="w-8 h-8 rounded-full object-cover flex-shrink-0 mb-4"
-                  />
-                )}
-              </div>
-            );
-          });
-          })()}
-
-          <div ref={scrollEnd}></div>
-        </div>
+            <div ref={scrollEnd}></div>
+          </div>
         )}
 
-        {isOtherUserTyping && (
+        {(showDmTyping || showGroupTyping) && (
           <div className="flex items-end gap-2 mt-2">
             <img
-              src={selectedUser.profilePic || assets.avatar_icon}
+              src={
+                isGroupChat
+                  ? findMember(groupTypingUsers[0])?.profilePic ||
+                    assets.avatar_icon
+                  : selectedUser.profilePic || assets.avatar_icon
+              }
               alt=""
               className="w-8 h-8 rounded-full object-cover flex-shrink-0"
             />
             <div className="px-3 py-2 rounded-xl bg-gray-700 text-gray-300 text-sm italic">
-              typing...
+              {isGroupChat ? groupTypingLabel() : "typing..."}
             </div>
           </div>
         )}
@@ -506,9 +630,11 @@ const ChatContainer = () => {
             <div className="min-w-0">
               <p className="text-xs text-violet-300 font-medium">
                 Replying to{" "}
-                {String(replyingTo.senderId) === String(authUser._id)
+                {resolveSenderId(replyingTo.senderId) === String(authUser._id)
                   ? "yourself"
-                  : selectedUser.fullName}
+                  : isGroupChat
+                    ? findMember(replyingTo.senderId)?.fullName || "member"
+                    : selectedUser.fullName}
               </p>
               <p className="text-xs text-gray-300 truncate">
                 {getReplyLabel(replyingTo)}

@@ -5,6 +5,7 @@ import http from "http";
 import { connectDB } from "./lib/db.js";
 import userRouter from "./routes/userRoutes.js";
 import messageRouter from "./routes/messageRouter.js";
+import groupRouter from "./routes/groupRouter.js";
 import {Server, Socket} from "socket.io"
 
 //create Express app HTTP server
@@ -30,8 +31,31 @@ io.on("connection", (socket)=>{
     // Emit online users to all connected clients
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
-    // Typing indicator: forward to the selected receiver only
-    socket.on("typing", ({ receiverId, isTyping }) => {
+    // Typing indicator: direct chat or group
+    socket.on("typing", async ({ receiverId, groupId, isTyping }) => {
+        if (groupId) {
+            try {
+                const { default: Group } = await import("./models/Group.js");
+                const group = await Group.findById(groupId).select("members");
+                if (!group) return;
+
+                group.members.forEach((memberId) => {
+                    if (String(memberId) === String(userId)) return;
+                    const memberSocketId = userSocketMap[String(memberId)];
+                    if (memberSocketId) {
+                        io.to(memberSocketId).emit("groupTyping", {
+                            groupId: String(groupId),
+                            senderId: userId,
+                            isTyping: !!isTyping,
+                        });
+                    }
+                });
+            } catch (error) {
+                console.log(error.message);
+            }
+            return;
+        }
+
         const receiverSocketId = userSocketMap[String(receiverId)];
         if (receiverSocketId) {
             io.to(receiverSocketId).emit("typing", {
@@ -61,6 +85,7 @@ app.use(cors());
 app.use("/api/status", (req, res)=> res.send("Server is live"));
 app.use("/api/auth", userRouter);
 app.use("/api/messages", messageRouter)
+app.use("/api/groups", groupRouter)
 
 
 // Connect to MongoDB

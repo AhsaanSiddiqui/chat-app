@@ -9,32 +9,52 @@ import {
 export const ChatContext = createContext();
 
 const SELECTED_CHAT_KEY = "quickchat_selected_user_id";
+const SELECTED_GROUP_KEY = "quickchat_selected_group_id";
+
+const resolveId = (value) => {
+  if (!value) return "";
+  if (typeof value === "object") return String(value._id);
+  return String(value);
+};
 
 export const ChatProvider = ({ children }) => {
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
-  const [selectedUser, setSelectedUser] = useState(null);
+  const [groups, setGroups] = useState([]);
+  const [selectedUser, setSelectedUserState] = useState(null);
+  const [selectedGroup, setSelectedGroupState] = useState(null);
   const [unseenMessages, setUnseenMessages] = useState({});
+  const [unseenGroupMessages, setUnseenGroupMessages] = useState({});
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
+  const [groupTypingUsers, setGroupTypingUsers] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
 
   const { socket, axios, authUser, ensureSocketConnected } =
     useContext(AuthContext);
 
   const usersRef = useRef(users);
+  const groupsRef = useRef(groups);
   const selectedUserRef = useRef(selectedUser);
-  const setSelectedUserRef = useRef(setSelectedUser);
+  const selectedGroupRef = useRef(selectedGroup);
+  const setSelectedUserRef = useRef(null);
+  const setSelectedGroupRef = useRef(null);
   const messagesRef = useRef(messages);
   const messageCacheRef = useRef({});
+  const groupMessageCacheRef = useRef({});
   const messagesAbortRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
   const chatRestoredRef = useRef(false);
   const hadAuthUserRef = useRef(false);
+  const groupTypingTimeoutsRef = useRef({});
 
   useEffect(() => {
     usersRef.current = users;
   }, [users]);
+
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -45,89 +65,160 @@ export const ChatProvider = ({ children }) => {
   }, [selectedUser]);
 
   useEffect(() => {
-    setSelectedUserRef.current = setSelectedUser;
-  }, [setSelectedUser]);
+    selectedGroupRef.current = selectedGroup;
+  }, [selectedGroup]);
 
-  // Remember last opened chat across reloads
+  const setSelectedUser = (user) => {
+    if (user) {
+      setSelectedGroupState(null);
+      localStorage.removeItem(SELECTED_GROUP_KEY);
+    }
+    setSelectedUserState(user);
+  };
+
+  const setSelectedGroup = (group) => {
+    if (group) {
+      setSelectedUserState(null);
+      localStorage.removeItem(SELECTED_CHAT_KEY);
+    }
+    setSelectedGroupState(group);
+  };
+
+  useEffect(() => {
+    setSelectedUserRef.current = setSelectedUser;
+  }, []);
+
+  useEffect(() => {
+    setSelectedGroupRef.current = setSelectedGroup;
+  }, []);
+
   useEffect(() => {
     if (selectedUser?._id) {
       localStorage.setItem(SELECTED_CHAT_KEY, selectedUser._id);
     }
   }, [selectedUser?._id]);
 
-  // Restore last chat after login + users list loads
   useEffect(() => {
-    if (!authUser || chatRestoredRef.current || !users.length) return;
+    if (selectedGroup?._id) {
+      localStorage.setItem(SELECTED_GROUP_KEY, selectedGroup._id);
+    }
+  }, [selectedGroup?._id]);
 
-    const savedId = localStorage.getItem(SELECTED_CHAT_KEY);
+  useEffect(() => {
+    if (!authUser || chatRestoredRef.current) return;
+    if (!users.length && !groups.length) return;
+
     chatRestoredRef.current = true;
 
-    if (!savedId) return;
+    const savedGroupId = localStorage.getItem(SELECTED_GROUP_KEY);
+    if (savedGroupId) {
+      const foundGroup = groups.find(
+        (group) => String(group._id) === String(savedGroupId)
+      );
+      if (foundGroup) {
+        setSelectedGroupState(foundGroup);
+        return;
+      }
+    }
 
-    const found = users.find((user) => String(user._id) === String(savedId));
-    if (found) setSelectedUser(found);
-  }, [users, authUser]);
+    const savedUserId = localStorage.getItem(SELECTED_CHAT_KEY);
+    if (savedUserId) {
+      const foundUser = users.find(
+        (user) => String(user._id) === String(savedUserId)
+      );
+      if (foundUser) setSelectedUserState(foundUser);
+    }
+  }, [users, groups, authUser]);
 
-  // Reset chat state on logout only (do NOT clear saved chat during initial auth load)
   useEffect(() => {
     if (authUser) {
       hadAuthUserRef.current = true;
       return;
     }
 
-    setSelectedUser(null);
+    setSelectedUserState(null);
+    setSelectedGroupState(null);
     setMessages([]);
     setUsers([]);
+    setGroups([]);
     setUnseenMessages({});
+    setUnseenGroupMessages({});
     messageCacheRef.current = {};
+    groupMessageCacheRef.current = {};
     chatRestoredRef.current = false;
 
     if (hadAuthUserRef.current) {
       localStorage.removeItem(SELECTED_CHAT_KEY);
+      localStorage.removeItem(SELECTED_GROUP_KEY);
       hadAuthUserRef.current = false;
     }
   }, [authUser]);
 
-  // Keep open-chat cache in sync with live message updates
   useEffect(() => {
     const userId = selectedUser?._id;
     if (!userId || messagesLoading) return;
     messageCacheRef.current[userId] = messages;
   }, [messages, selectedUser?._id, messagesLoading]);
 
-  // Clear typing when switching chats
+  useEffect(() => {
+    const groupId = selectedGroup?._id;
+    if (!groupId || messagesLoading) return;
+    groupMessageCacheRef.current[groupId] = messages;
+  }, [messages, selectedGroup?._id, messagesLoading]);
+
   useEffect(() => {
     setIsOtherUserTyping(false);
+    setGroupTypingUsers([]);
+    Object.values(groupTypingTimeoutsRef.current).forEach(clearTimeout);
+    groupTypingTimeoutsRef.current = {};
+
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
     }
     isTypingRef.current = false;
-  }, [selectedUser?._id]);
+  }, [selectedUser?._id, selectedGroup?._id]);
 
-  const emitTyping = (receiverId, isTyping) => {
-    if (!socket || !receiverId) return;
+  const emitTyping = ({ receiverId, groupId, isTyping }) => {
+    if (!socket) return;
+    if (groupId) {
+      socket.emit("typing", { groupId, isTyping });
+      return;
+    }
+    if (!receiverId) return;
     socket.emit("typing", { receiverId, isTyping });
   };
 
   const startTyping = () => {
-    if (!selectedUser?._id) return;
+    const targetUserId = selectedUser?._id;
+    const targetGroupId = selectedGroup?._id;
+    if (!targetUserId && !targetGroupId) return;
 
     if (!isTypingRef.current) {
       isTypingRef.current = true;
-      emitTyping(selectedUser._id, true);
+      emitTyping({
+        receiverId: targetUserId,
+        groupId: targetGroupId,
+        isTyping: true,
+      });
     }
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
     typingTimeoutRef.current = setTimeout(() => {
       isTypingRef.current = false;
-      emitTyping(selectedUser._id, false);
+      emitTyping({
+        receiverId: targetUserId,
+        groupId: targetGroupId,
+        isTyping: false,
+      });
     }, 1500);
   };
 
   const stopTyping = () => {
-    if (!selectedUser?._id) return;
+    const targetUserId = selectedUser?._id;
+    const targetGroupId = selectedGroup?._id;
+    if (!targetUserId && !targetGroupId) return;
 
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
@@ -136,7 +227,11 @@ export const ChatProvider = ({ children }) => {
 
     if (isTypingRef.current) {
       isTypingRef.current = false;
-      emitTyping(selectedUser._id, false);
+      emitTyping({
+        receiverId: targetUserId,
+        groupId: targetGroupId,
+        isTyping: false,
+      });
     }
   };
 
@@ -149,6 +244,111 @@ export const ChatProvider = ({ children }) => {
       }
     } catch (error) {
       toast.error(error.message);
+    }
+  };
+
+  const getGroups = async () => {
+    try {
+      const { data } = await axios.get("/api/groups/my");
+      if (data.success) {
+        setGroups(data.groups);
+        setUnseenGroupMessages(data.unseenMessages || {});
+      }
+    } catch (error) {
+      toast.error(error.message);
+    }
+  };
+
+  const createGroup = async ({ name, description, memberIds, groupPic }) => {
+    try {
+      const { data } = await axios.post("/api/groups/create", {
+        name,
+        description,
+        memberIds,
+        groupPic,
+      });
+      if (data.success) {
+        setGroups((prev) => {
+          const exists = prev.some(
+            (g) => String(g._id) === String(data.group._id)
+          );
+          return exists ? prev : [data.group, ...prev];
+        });
+        setSelectedGroup(data.group);
+        toast.success("Group created");
+        return data.group;
+      }
+      toast.error(data.message || "Failed to create group");
+      return null;
+    } catch (error) {
+      toast.error(error.message);
+      return null;
+    }
+  };
+
+  const addGroupMembers = async (groupId, memberIds) => {
+    try {
+      const { data } = await axios.post(`/api/groups/${groupId}/members`, {
+        memberIds,
+      });
+      if (data.success) {
+        setGroups((prev) =>
+          prev.map((g) =>
+            String(g._id) === String(data.group._id) ? data.group : g
+          )
+        );
+        if (String(selectedGroupRef.current?._id) === String(data.group._id)) {
+          setSelectedGroupState(data.group);
+        }
+        toast.success("Members added");
+        return true;
+      }
+      toast.error(data.message || "Failed to add members");
+      return false;
+    } catch (error) {
+      toast.error(error.message);
+      return false;
+    }
+  };
+
+  const removeGroupMember = async (groupId, userId) => {
+    try {
+      const { data } = await axios.delete(
+        `/api/groups/${groupId}/members/${userId}`
+      );
+      if (data.success) {
+        const stillMember = data.group.members.some(
+          (m) => resolveId(m) === String(authUser._id)
+        );
+
+        if (!stillMember) {
+          setGroups((prev) =>
+            prev.filter((g) => String(g._id) !== String(groupId))
+          );
+          if (String(selectedGroupRef.current?._id) === String(groupId)) {
+            setSelectedGroupState(null);
+            setMessages([]);
+          }
+          toast.success("Left group");
+          return true;
+        }
+
+        setGroups((prev) =>
+          prev.map((g) =>
+            String(g._id) === String(data.group._id) ? data.group : g
+          )
+        );
+        if (String(selectedGroupRef.current?._id) === String(data.group._id)) {
+          setSelectedGroupState(data.group);
+        }
+        toast.success("Member removed");
+        return true;
+      }
+      toast.error(data.message || "Failed to remove member");
+      return false;
+    } catch (error) {
+      toast.error(error.message);
+      return false;
     }
   };
 
@@ -204,8 +404,122 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
+  const getGroupMessages = async (groupId) => {
+    if (!groupId) return;
+
+    const cached = groupMessageCacheRef.current[groupId];
+    if (cached) {
+      setMessages(cached);
+      setMessagesLoading(false);
+    } else {
+      setMessages([]);
+      setMessagesLoading(true);
+    }
+
+    if (messagesAbortRef.current) {
+      messagesAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    messagesAbortRef.current = controller;
+
+    try {
+      const { data } = await axios.get(`/api/groups/${groupId}/messages`, {
+        signal: controller.signal,
+      });
+
+      if (data.success) {
+        groupMessageCacheRef.current[groupId] = data.messages;
+
+        if (String(selectedGroupRef.current?._id) === String(groupId)) {
+          setMessages(data.messages);
+          setMessagesLoading(false);
+        }
+
+        setUnseenGroupMessages((prev) => {
+          const next = { ...prev };
+          delete next[groupId];
+          return next;
+        });
+      }
+    } catch (error) {
+      if (
+        error.code === "ERR_CANCELED" ||
+        error.name === "CanceledError" ||
+        error.name === "AbortError"
+      ) {
+        return;
+      }
+      if (String(selectedGroupRef.current?._id) === String(groupId)) {
+        setMessagesLoading(false);
+      }
+      toast.error(error.message);
+    }
+  };
+
   const sendMessage = async (messageData) => {
-    if (!selectedUser?._id || !authUser?._id) return;
+    if (!authUser?._id) return;
+
+    if (selectedGroup?._id) {
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const optimisticMessage = {
+        _id: tempId,
+        groupId: selectedGroup._id,
+        senderId: {
+          _id: authUser._id,
+          fullName: authUser.fullName,
+          profilePic: authUser.profilePic,
+        },
+        text: messageData.text || "",
+        image: messageData.image || "",
+        seenBy: [authUser._id],
+        isEdited: false,
+        isDeleted: false,
+        createdAt: new Date().toISOString(),
+        pending: true,
+      };
+
+      if (messageData.replyTo) {
+        const original = messagesRef.current.find(
+          (msg) => String(msg._id) === String(messageData.replyTo)
+        );
+        if (original) {
+          optimisticMessage.replyTo = {
+            messageId: original._id,
+            senderId: resolveId(original.senderId),
+            text: original.isDeleted ? "" : original.text,
+            image: original.isDeleted ? "" : original.image,
+            isDeleted: !!original.isDeleted,
+          };
+        }
+      }
+
+      setMessages((prev) => [...prev, optimisticMessage]);
+
+      try {
+        const { data } = await axios.post(
+          `/api/groups/${selectedGroup._id}/messages`,
+          messageData
+        );
+        if (data.success) {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              String(msg._id) === tempId ? data.newMessage : msg
+            )
+          );
+        } else {
+          setMessages((prev) =>
+            prev.filter((msg) => String(msg._id) !== tempId)
+          );
+          toast.error(data.message || "Failed to send message");
+        }
+      } catch (error) {
+        setMessages((prev) => prev.filter((msg) => String(msg._id) !== tempId));
+        toast.error(error.message);
+      }
+      return;
+    }
+
+    if (!selectedUser?._id) return;
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const optimisticMessage = {
@@ -263,9 +577,13 @@ export const ChatProvider = ({ children }) => {
 
   const editMessage = async (messageId, text) => {
     try {
-      const { data } = await axios.put(`/api/messages/edit/${messageId}`, {
-        text,
-      });
+      const isGroup = !!selectedGroupRef.current?._id;
+      const { data } = await axios.put(
+        isGroup
+          ? `/api/groups/messages/${messageId}`
+          : `/api/messages/edit/${messageId}`,
+        { text }
+      );
       if (data.success) {
         setMessages((prev) =>
           prev.map((msg) =>
@@ -284,7 +602,12 @@ export const ChatProvider = ({ children }) => {
 
   const deleteMessage = async (messageId) => {
     try {
-      const { data } = await axios.delete(`/api/messages/delete/${messageId}`);
+      const isGroup = !!selectedGroupRef.current?._id;
+      const { data } = await axios.delete(
+        isGroup
+          ? `/api/groups/messages/${messageId}`
+          : `/api/messages/delete/${messageId}`
+      );
       if (data.success) {
         setMessages((prev) =>
           prev.map((msg) =>
@@ -301,8 +624,35 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
-  const notifyNewMessage = (newMessage) => {
+  const notifyNewMessage = (newMessage, { isGroup = false } = {}) => {
     if (!isAppInBackground()) return;
+
+    if (isGroup) {
+      const group = groupsRef.current.find(
+        (g) => String(g._id) === String(newMessage.groupId)
+      );
+      const sender =
+        typeof newMessage.senderId === "object"
+          ? newMessage.senderId
+          : usersRef.current.find(
+              (u) => String(u._id) === String(newMessage.senderId)
+            );
+
+      showChatNotification({
+        title: group?.name || "Group message",
+        body: newMessage.text
+          ? `${sender?.fullName || "Someone"}: ${newMessage.text}`
+          : newMessage.image
+            ? `${sender?.fullName || "Someone"} sent a photo`
+            : "New group message",
+        icon: group?.groupPic || sender?.profilePic || undefined,
+        tag: `group-${newMessage.groupId}`,
+        onClick: () => {
+          if (group) setSelectedGroupRef.current?.(group);
+        },
+      });
+      return;
+    }
 
     const sender = usersRef.current.find(
       (user) => String(user._id) === String(newMessage.senderId)
@@ -321,9 +671,7 @@ export const ChatProvider = ({ children }) => {
       icon: sender?.profilePic || undefined,
       tag: `chat-${newMessage.senderId}`,
       onClick: () => {
-        if (sender) {
-          setSelectedUserRef.current(sender);
-        }
+        if (sender) setSelectedUserRef.current?.(sender);
       },
     });
   };
@@ -336,6 +684,12 @@ export const ChatProvider = ({ children }) => {
       String(message.senderId) === String(currentSelected._id) ||
       String(message.receiverId) === String(currentSelected._id)
     );
+  };
+
+  const isGroupMessageOpen = (message) => {
+    const currentGroup = selectedGroupRef.current;
+    if (!currentGroup) return false;
+    return String(message.groupId) === String(currentGroup._id);
   };
 
   useEffect(() => {
@@ -353,7 +707,6 @@ export const ChatProvider = ({ children }) => {
         axios.put(`/api/messages/mark/${newMessage._id}`);
         setIsOtherUserTyping(false);
       } else {
-        // Keep inactive chat cache fresh so opening it feels instant
         const chatId = String(newMessage.senderId);
         if (messageCacheRef.current[chatId]) {
           messageCacheRef.current[chatId] = [
@@ -371,6 +724,36 @@ export const ChatProvider = ({ children }) => {
       }
 
       notifyNewMessage(newMessage);
+    };
+
+    const onNewGroupMessage = (newMessage) => {
+      const groupId = String(newMessage.groupId);
+
+      if (isGroupMessageOpen(newMessage)) {
+        setMessages((prev) => {
+          if (prev.some((m) => String(m._id) === String(newMessage._id))) {
+            return prev;
+          }
+          return [...prev, newMessage];
+        });
+        setGroupTypingUsers((prev) =>
+          prev.filter((id) => id !== resolveId(newMessage.senderId))
+        );
+      } else if (groupMessageCacheRef.current[groupId]) {
+        groupMessageCacheRef.current[groupId] = [
+          ...groupMessageCacheRef.current[groupId],
+          newMessage,
+        ];
+      }
+
+      if (!isGroupMessageOpen(newMessage)) {
+        setUnseenGroupMessages((prev) => ({
+          ...prev,
+          [groupId]: prev[groupId] ? prev[groupId] + 1 : 1,
+        }));
+      }
+
+      notifyNewMessage(newMessage, { isGroup: true });
     };
 
     const onMessageUpdated = (updatedMessage) => {
@@ -391,6 +774,24 @@ export const ChatProvider = ({ children }) => {
       );
     };
 
+    const onGroupMessageUpdated = (updatedMessage) => {
+      if (!isGroupMessageOpen(updatedMessage)) return;
+      setMessages((prev) =>
+        prev.map((msg) =>
+          String(msg._id) === String(updatedMessage._id) ? updatedMessage : msg
+        )
+      );
+    };
+
+    const onGroupMessageDeleted = (deletedMessage) => {
+      if (!isGroupMessageOpen(deletedMessage)) return;
+      setMessages((prev) =>
+        prev.map((msg) =>
+          String(msg._id) === String(deletedMessage._id) ? deletedMessage : msg
+        )
+      );
+    };
+
     const onTyping = ({ senderId, isTyping }) => {
       const currentSelected = selectedUserRef.current;
       if (
@@ -398,6 +799,33 @@ export const ChatProvider = ({ children }) => {
         String(senderId) === String(currentSelected._id)
       ) {
         setIsOtherUserTyping(!!isTyping);
+      }
+    };
+
+    const onGroupTyping = ({ groupId, senderId, isTyping }) => {
+      const currentGroup = selectedGroupRef.current;
+      if (!currentGroup || String(currentGroup._id) !== String(groupId)) {
+        return;
+      }
+
+      const sid = String(senderId);
+      if (groupTypingTimeoutsRef.current[sid]) {
+        clearTimeout(groupTypingTimeoutsRef.current[sid]);
+        delete groupTypingTimeoutsRef.current[sid];
+      }
+
+      setGroupTypingUsers((prev) => {
+        if (isTyping) {
+          return prev.includes(sid) ? prev : [...prev, sid];
+        }
+        return prev.filter((id) => id !== sid);
+      });
+
+      if (isTyping) {
+        groupTypingTimeoutsRef.current[sid] = setTimeout(() => {
+          setGroupTypingUsers((prev) => prev.filter((id) => id !== sid));
+          delete groupTypingTimeoutsRef.current[sid];
+        }, 2500);
       }
     };
 
@@ -421,22 +849,69 @@ export const ChatProvider = ({ children }) => {
       );
     };
 
+    const onGroupCreated = (group) => {
+      setGroups((prev) => {
+        if (prev.some((g) => String(g._id) === String(group._id))) return prev;
+        return [group, ...prev];
+      });
+    };
+
+    const onGroupUpdated = (group) => {
+      const isMember = group.members.some(
+        (m) => resolveId(m) === String(authUser?._id)
+      );
+
+      if (!isMember) {
+        setGroups((prev) =>
+          prev.filter((g) => String(g._id) !== String(group._id))
+        );
+        if (String(selectedGroupRef.current?._id) === String(group._id)) {
+          setSelectedGroupState(null);
+          setMessages([]);
+        }
+        return;
+      }
+
+      setGroups((prev) => {
+        const exists = prev.some((g) => String(g._id) === String(group._id));
+        if (!exists) return [group, ...prev];
+        return prev.map((g) =>
+          String(g._id) === String(group._id) ? group : g
+        );
+      });
+
+      if (String(selectedGroupRef.current?._id) === String(group._id)) {
+        setSelectedGroupState(group);
+      }
+    };
+
     socket.on("newMessage", onNewMessage);
+    socket.on("newGroupMessage", onNewGroupMessage);
     socket.on("messageUpdated", onMessageUpdated);
     socket.on("messageDeleted", onMessageDeleted);
+    socket.on("groupMessageUpdated", onGroupMessageUpdated);
+    socket.on("groupMessageDeleted", onGroupMessageDeleted);
     socket.on("typing", onTyping);
+    socket.on("groupTyping", onGroupTyping);
     socket.on("messagesSeen", onMessagesSeen);
+    socket.on("groupCreated", onGroupCreated);
+    socket.on("groupUpdated", onGroupUpdated);
 
     return () => {
       socket.off("newMessage", onNewMessage);
+      socket.off("newGroupMessage", onNewGroupMessage);
       socket.off("messageUpdated", onMessageUpdated);
       socket.off("messageDeleted", onMessageDeleted);
+      socket.off("groupMessageUpdated", onGroupMessageUpdated);
+      socket.off("groupMessageDeleted", onGroupMessageDeleted);
       socket.off("typing", onTyping);
+      socket.off("groupTyping", onGroupTyping);
       socket.off("messagesSeen", onMessagesSeen);
+      socket.off("groupCreated", onGroupCreated);
+      socket.off("groupUpdated", onGroupUpdated);
     };
-  }, [socket, axios]);
+  }, [socket, axios, authUser?._id]);
 
-  // When tab becomes active again, sync missed messages automatically
   useEffect(() => {
     if (!authUser) return;
 
@@ -447,11 +922,12 @@ export const ChatProvider = ({ children }) => {
 
       ensureSocketConnected?.();
       getUsers();
+      getGroups();
 
       const selectedId = selectedUserRef.current?._id;
-      if (selectedId) {
-        getMessages(selectedId);
-      }
+      const selectedGroupId = selectedGroupRef.current?._id;
+      if (selectedId) getMessages(selectedId);
+      if (selectedGroupId) getGroupMessages(selectedGroupId);
     };
 
     document.addEventListener("visibilitychange", syncChatOnActive);
@@ -466,16 +942,27 @@ export const ChatProvider = ({ children }) => {
   const value = {
     messages,
     users,
+    groups,
     selectedUser,
+    selectedGroup,
     getUsers,
+    getGroups,
     getMessages,
+    getGroupMessages,
+    createGroup,
+    addGroupMembers,
+    removeGroupMember,
     sendMessage,
     editMessage,
     deleteMessage,
     setSelectedUser,
+    setSelectedGroup,
     unseenMessages,
     setUnseenMessages,
+    unseenGroupMessages,
+    setUnseenGroupMessages,
     isOtherUserTyping,
+    groupTypingUsers,
     startTyping,
     stopTyping,
     messagesLoading,
