@@ -107,34 +107,52 @@ const ChatContainer = () => {
     }
   };
 
-  const handleSendImage = (e) => {
-    const file = e.target.files[0];
-
+  const sendImageFile = (file) => {
     if (!file || !file.type.startsWith("image/")) {
-      toast.error("Please select an image");
+      toast.error("Please paste or select an image");
       return;
     }
 
     if (editingMessage) {
       toast.error("Finish or cancel editing before sending an image");
-      e.target.value = "";
       return;
     }
 
     const reader = new FileReader();
     const replyId = replyingTo?._id;
     setReplyingTo(null);
+    stopTyping();
 
     reader.onloadend = () => {
       sendMessage({
         image: reader.result,
         ...(replyId ? { replyTo: replyId } : {}),
       });
-
-      e.target.value = "";
     };
 
     reader.readAsDataURL(file);
+  };
+
+  const handleSendImage = (e) => {
+    const file = e.target.files[0];
+    sendImageFile(file);
+    e.target.value = "";
+  };
+
+  const handlePaste = (e) => {
+    if (editingMessage) return;
+
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) sendImageFile(file);
+        return;
+      }
+    }
   };
 
   const startReply = (msg) => {
@@ -197,7 +215,10 @@ const ChatContainer = () => {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden backdrop-blur-lg">
+    <div
+      className="flex flex-col h-full overflow-hidden backdrop-blur-lg"
+      onPaste={handlePaste}
+    >
       <div className="flex items-center gap-3 p-4 border-b border-gray-700 flex-shrink-0">
         <img
           src={selectedUser.profilePic || assets.avatar_icon}
@@ -464,13 +485,14 @@ const ChatContainer = () => {
             placeholder={
               editingMessage
                 ? "Edit your message..."
-                : replyingTo
+                  : replyingTo
                   ? "Type a reply..."
-                  : "Type a message..."
+                  : "Type a message... (paste image with Ctrl+V)"
             }
             className="flex-1 bg-transparent outline-none text-white py-3 placeholder-gray-400"
             value={input}
             onChange={handleInputChange}
+            onPaste={handlePaste}
             onKeyDown={(e) => e.key === "Enter" && handleSendMessage(e)}
             onBlur={stopTyping}
           />
