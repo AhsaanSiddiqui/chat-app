@@ -30,6 +30,17 @@ io.on("connection", (socket)=>{
     // Emit online users to all connected clients
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
+    // Typing indicator: forward to the selected receiver only
+    socket.on("typing", ({ receiverId, isTyping }) => {
+        const receiverSocketId = userSocketMap[String(receiverId)];
+        if (receiverSocketId) {
+            io.to(receiverSocketId).emit("typing", {
+                senderId: userId,
+                isTyping: !!isTyping,
+            });
+        }
+    });
+
     socket.on("disconnect", ()=>{
         console.log("User Disconnected", userId);
         // Only remove if this socket is still the active one for the user

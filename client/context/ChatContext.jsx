@@ -13,12 +13,15 @@ export const ChatProvider = ({ children }) => {
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [unseenMessages, setUnseenMessages] = useState({});
+  const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
 
   const { socket, axios } = useContext(AuthContext);
 
   const usersRef = useRef(users);
   const selectedUserRef = useRef(selectedUser);
   const setSelectedUserRef = useRef(setSelectedUser);
+  const typingTimeoutRef = useRef(null);
+  const isTypingRef = useRef(false);
 
   useEffect(() => {
     usersRef.current = users;
@@ -31,6 +34,51 @@ export const ChatProvider = ({ children }) => {
   useEffect(() => {
     setSelectedUserRef.current = setSelectedUser;
   }, [setSelectedUser]);
+
+  // Clear typing when switching chats
+  useEffect(() => {
+    setIsOtherUserTyping(false);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    isTypingRef.current = false;
+  }, [selectedUser?._id]);
+
+  const emitTyping = (receiverId, isTyping) => {
+    if (!socket || !receiverId) return;
+    socket.emit("typing", { receiverId, isTyping });
+  };
+
+  const startTyping = () => {
+    if (!selectedUser?._id) return;
+
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      emitTyping(selectedUser._id, true);
+    }
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+    typingTimeoutRef.current = setTimeout(() => {
+      isTypingRef.current = false;
+      emitTyping(selectedUser._id, false);
+    }, 1500);
+  };
+
+  const stopTyping = () => {
+    if (!selectedUser?._id) return;
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+
+    if (isTypingRef.current) {
+      isTypingRef.current = false;
+      emitTyping(selectedUser._id, false);
+    }
+  };
 
   const getUsers = async () => {
     try {
@@ -159,6 +207,7 @@ export const ChatProvider = ({ children }) => {
         newMessage.seen = true;
         setMessages((prevMessages) => [...prevMessages, newMessage]);
         axios.put(`/api/messages/mark/${newMessage._id}`);
+        setIsOtherUserTyping(false);
       } else {
         setUnseenMessages((prevUnseenMessages) => ({
           ...prevUnseenMessages,
@@ -189,14 +238,26 @@ export const ChatProvider = ({ children }) => {
       );
     };
 
+    const onTyping = ({ senderId, isTyping }) => {
+      const currentSelected = selectedUserRef.current;
+      if (
+        currentSelected &&
+        String(senderId) === String(currentSelected._id)
+      ) {
+        setIsOtherUserTyping(!!isTyping);
+      }
+    };
+
     socket.on("newMessage", onNewMessage);
     socket.on("messageUpdated", onMessageUpdated);
     socket.on("messageDeleted", onMessageDeleted);
+    socket.on("typing", onTyping);
 
     return () => {
       socket.off("newMessage", onNewMessage);
       socket.off("messageUpdated", onMessageUpdated);
       socket.off("messageDeleted", onMessageDeleted);
+      socket.off("typing", onTyping);
     };
   }, [socket, axios]);
 
@@ -212,6 +273,9 @@ export const ChatProvider = ({ children }) => {
     setSelectedUser,
     unseenMessages,
     setUnseenMessages,
+    isOtherUserTyping,
+    startTyping,
+    stopTyping,
   };
 
   return (

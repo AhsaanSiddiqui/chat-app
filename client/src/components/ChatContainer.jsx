@@ -14,6 +14,9 @@ const ChatContainer = () => {
     editMessage,
     deleteMessage,
     getMessages,
+    isOtherUserTyping,
+    startTyping,
+    stopTyping,
   } = useContext(ChatContext);
 
   const { authUser, onlineUsers } = useContext(AuthContext);
@@ -29,6 +32,7 @@ const ChatContainer = () => {
       setEditingMessage(null);
       setInput("");
       setMenuOpenId(null);
+      stopTyping();
     }
   }, [selectedUser]);
 
@@ -36,7 +40,7 @@ const ChatContainer = () => {
     if (scrollEnd.current) {
       scrollEnd.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages]);
+  }, [messages, isOtherUserTyping]);
 
   useEffect(() => {
     const closeMenu = () => setMenuOpenId(null);
@@ -48,6 +52,8 @@ const ChatContainer = () => {
     e.preventDefault();
 
     if (!input.trim()) return;
+
+    stopTyping();
 
     if (editingMessage) {
       const ok = await editMessage(editingMessage._id, input.trim());
@@ -63,6 +69,19 @@ const ChatContainer = () => {
     });
 
     setInput("");
+  };
+
+  const handleInputChange = (e) => {
+    const value = e.target.value;
+    setInput(value);
+
+    if (editingMessage) return;
+
+    if (value.trim()) {
+      startTyping();
+    } else {
+      stopTyping();
+    }
   };
 
   const handleSendImage = (e) => {
@@ -136,7 +155,9 @@ const ChatContainer = () => {
         <div className="flex-1">
           <p className="text-white font-medium">{selectedUser.fullName}</p>
 
-          {onlineUsers.includes(selectedUser._id) ? (
+          {isOtherUserTyping ? (
+            <p className="text-green-400 text-xs italic">typing...</p>
+          ) : onlineUsers.includes(selectedUser._id) ? (
             <p className="text-green-400 text-xs">Online</p>
           ) : (
             <p className="text-gray-400 text-xs">Offline</p>
@@ -265,6 +286,19 @@ const ChatContainer = () => {
 
           <div ref={scrollEnd}></div>
         </div>
+
+        {isOtherUserTyping && (
+          <div className="flex items-end gap-2 mt-2">
+            <img
+              src={selectedUser.profilePic || assets.avatar_icon}
+              alt=""
+              className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+            />
+            <div className="px-3 py-2 rounded-xl bg-gray-700 text-gray-300 text-sm italic">
+              typing...
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-gray-700 p-3 flex-shrink-0">
@@ -289,8 +323,9 @@ const ChatContainer = () => {
             }
             className="flex-1 bg-transparent outline-none text-white py-3 placeholder-gray-400"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={(e) => e.key === "Enter" && handleSendMessage(e)}
+            onBlur={stopTyping}
           />
 
           {!editingMessage && (
