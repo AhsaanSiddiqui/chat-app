@@ -24,8 +24,8 @@ const {
   const filteredUsers = input ? users.filter((user)=>user.fullName.toLowerCase().includes(input.toLowerCase())) : users;
 
   useEffect(()=>{
-    getUsers();
-  },[])
+    if (authUser) getUsers();
+  },[authUser])
 
  return (
   <div

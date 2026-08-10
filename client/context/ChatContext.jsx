@@ -30,6 +30,7 @@ export const ChatProvider = ({ children }) => {
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
   const chatRestoredRef = useRef(false);
+  const hadAuthUserRef = useRef(false);
 
   useEffect(() => {
     usersRef.current = users;
@@ -54,9 +55,9 @@ export const ChatProvider = ({ children }) => {
     }
   }, [selectedUser?._id]);
 
-  // Restore last chat after users list loads
+  // Restore last chat after login + users list loads
   useEffect(() => {
-    if (chatRestoredRef.current || !users.length) return;
+    if (!authUser || chatRestoredRef.current || !users.length) return;
 
     const savedId = localStorage.getItem(SELECTED_CHAT_KEY);
     chatRestoredRef.current = true;
@@ -65,18 +66,25 @@ export const ChatProvider = ({ children }) => {
 
     const found = users.find((user) => String(user._id) === String(savedId));
     if (found) setSelectedUser(found);
-  }, [users]);
+  }, [users, authUser]);
 
-  // Clear saved chat on logout / session end
+  // Reset chat state on logout only (do NOT clear saved chat during initial auth load)
   useEffect(() => {
-    if (!authUser) {
-      chatRestoredRef.current = false;
-      setSelectedUser(null);
-      setMessages([]);
-      setUsers([]);
-      setUnseenMessages({});
-      messageCacheRef.current = {};
+    if (authUser) {
+      hadAuthUserRef.current = true;
+      return;
+    }
+
+    setSelectedUser(null);
+    setMessages([]);
+    setUsers([]);
+    setUnseenMessages({});
+    messageCacheRef.current = {};
+    chatRestoredRef.current = false;
+
+    if (hadAuthUserRef.current) {
       localStorage.removeItem(SELECTED_CHAT_KEY);
+      hadAuthUserRef.current = false;
     }
   }, [authUser]);
 

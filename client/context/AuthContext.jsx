@@ -39,6 +39,7 @@ export const AuthProvider = ({ children }) => {
 
   const clearSession = (showToast = false) => {
     localStorage.removeItem("token");
+    localStorage.removeItem("quickchat_selected_user_id");
     setToken(null);
     setAuthUser(null);
     setOnlineUsers([]);
