@@ -81,7 +81,7 @@ export const markMessageAsSeen = async (req, res) => {
 // send message to selected user
 export const sendMessage = async (req, res) => {
     try {
-        const { text, image } = req.body;
+        const { text, image, replyTo } = req.body;
         const receiverId = req.params.id;
         const senderId = req.user._id;
 
@@ -90,11 +90,27 @@ export const sendMessage = async (req, res) => {
             const uploadResponse = await cloudinary.uploader.upload(image)
             imageUrl = uploadResponse.secure_url;
         }
+
+        let replyData;
+        if (replyTo) {
+            const original = await Message.findById(replyTo);
+            if (original) {
+                replyData = {
+                    messageId: original._id,
+                    senderId: original.senderId,
+                    text: original.isDeleted ? "" : original.text,
+                    image: original.isDeleted ? "" : original.image,
+                    isDeleted: !!original.isDeleted,
+                };
+            }
+        }
+
         const newMessage = await Message.create({
             senderId,
             receiverId,
             text,
-            image: imageUrl
+            image: imageUrl,
+            ...(replyData ? { replyTo: replyData } : {}),
         })
 
         // Emit the new message to the receiver's socket 

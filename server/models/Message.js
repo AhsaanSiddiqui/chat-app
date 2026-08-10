@@ -9,6 +9,13 @@ const messageSchema = new mongoose.Schema({
    seen: {type: Boolean, default: false},
    isEdited: {type: Boolean, default: false},
    isDeleted: {type: Boolean, default: false},
+   replyTo: {
+      messageId: { type: mongoose.Schema.Types.ObjectId, ref: "Message" },
+      senderId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      text: { type: String },
+      image: { type: String },
+      isDeleted: { type: Boolean, default: false },
+   },
 }, {timestamps: true});
 
 const Message = mongoose.model("Message", messageSchema);

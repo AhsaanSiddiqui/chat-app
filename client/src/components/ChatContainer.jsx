@@ -22,14 +22,17 @@ const ChatContainer = () => {
   const { authUser, onlineUsers } = useContext(AuthContext);
 
   const scrollEnd = useRef(null);
+  const inputRef = useRef(null);
   const [input, setInput] = useState("");
   const [editingMessage, setEditingMessage] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
   const [menuOpenId, setMenuOpenId] = useState(null);
 
   useEffect(() => {
     if (selectedUser) {
       getMessages(selectedUser._id);
       setEditingMessage(null);
+      setReplyingTo(null);
       setInput("");
       setMenuOpenId(null);
       stopTyping();
@@ -47,6 +50,19 @@ const ChatContainer = () => {
     window.addEventListener("click", closeMenu);
     return () => window.removeEventListener("click", closeMenu);
   }, []);
+
+  const getReplyLabel = (msg) => {
+    if (!msg) return "";
+    if (msg.isDeleted || msg.replyTo?.isDeleted) return "Message deleted";
+    if (msg.image || msg.replyTo?.image) return "Photo";
+    return msg.text || msg.replyTo?.text || "";
+  };
+
+  const getReplySenderName = (reply) => {
+    if (!reply?.senderId) return "Message";
+    if (String(reply.senderId) === String(authUser._id)) return "You";
+    return selectedUser.fullName;
+  };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -66,9 +82,11 @@ const ChatContainer = () => {
 
     await sendMessage({
       text: input.trim(),
+      ...(replyingTo ? { replyTo: replyingTo._id } : {}),
     });
 
     setInput("");
+    setReplyingTo(null);
   };
 
   const handleInputChange = (e) => {
@@ -103,24 +121,40 @@ const ChatContainer = () => {
     reader.onloadend = async () => {
       await sendMessage({
         image: reader.result,
+        ...(replyingTo ? { replyTo: replyingTo._id } : {}),
       });
 
+      setReplyingTo(null);
       e.target.value = "";
     };
 
     reader.readAsDataURL(file);
   };
 
+  const startReply = (msg) => {
+    if (msg.isDeleted) return;
+    setEditingMessage(null);
+    setReplyingTo(msg);
+    setMenuOpenId(null);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
   const startEdit = (msg) => {
     if (msg.isDeleted || msg.image) return;
+    setReplyingTo(null);
     setEditingMessage(msg);
     setInput(msg.text || "");
     setMenuOpenId(null);
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const cancelEdit = () => {
     setEditingMessage(null);
     setInput("");
+  };
+
+  const cancelReply = () => {
+    setReplyingTo(null);
   };
 
   const handleDelete = async (msg) => {
@@ -129,6 +163,19 @@ const ChatContainer = () => {
     await deleteMessage(msg._id);
     if (editingMessage && String(editingMessage._id) === String(msg._id)) {
       cancelEdit();
+    }
+    if (replyingTo && String(replyingTo._id) === String(msg._id)) {
+      cancelReply();
+    }
+  };
+
+  const scrollToMessage = (messageId) => {
+    if (!messageId) return;
+    const el = document.getElementById(`msg-${messageId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-2", "ring-violet-400");
+      setTimeout(() => el.classList.remove("ring-2", "ring-violet-400"), 1200);
     }
   };
 
@@ -185,7 +232,8 @@ const ChatContainer = () => {
             return (
               <div
                 key={msg._id}
-                className={`flex group items-end gap-2 ${isMine ? "justify-end" : "justify-start"}`}
+                id={`msg-${msg._id}`}
+                className={`flex group items-end gap-2 rounded-lg transition-shadow ${isMine ? "justify-end" : "justify-start"}`}
               >
                 {!isMine && (
                   <img
@@ -196,8 +244,12 @@ const ChatContainer = () => {
                 )}
 
                 <div className={`max-w-xs relative ${isMine ? "items-end" : "items-start"}`}>
-                  {isMine && !msg.isDeleted && (
-                    <div className="absolute -top-1 -left-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {!msg.isDeleted && (
+                    <div
+                      className={`absolute -top-1 opacity-0 group-hover:opacity-100 transition-opacity ${
+                        isMine ? "-left-8" : "-right-8"
+                      }`}
+                    >
                       <button
                         type="button"
                         className="text-gray-300 hover:text-white text-lg px-1"
@@ -213,10 +265,19 @@ const ChatContainer = () => {
 
                       {menuOpenId === msg._id && (
                         <div
-                          className="absolute left-0 top-6 z-20 min-w-[110px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden"
+                          className={`absolute top-6 z-20 min-w-[110px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden ${
+                            isMine ? "left-0" : "right-0"
+                          }`}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {!msg.image && (
+                          <button
+                            type="button"
+                            className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
+                            onClick={() => startReply(msg)}
+                          >
+                            Reply
+                          </button>
+                          {isMine && !msg.image && (
                             <button
                               type="button"
                               className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
@@ -225,13 +286,15 @@ const ChatContainer = () => {
                               Edit
                             </button>
                           )}
-                          <button
-                            type="button"
-                            className="block w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-800"
-                            onClick={() => handleDelete(msg)}
-                          >
-                            Delete
-                          </button>
+                          {isMine && (
+                            <button
+                              type="button"
+                              className="block w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-800"
+                              onClick={() => handleDelete(msg)}
+                            >
+                              Delete
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -245,19 +308,46 @@ const ChatContainer = () => {
                     >
                       This message was deleted
                     </div>
-                  ) : msg.image ? (
-                    <img
-                      src={msg.image}
-                      alt=""
-                      className="rounded-lg max-w-[220px]"
-                    />
                   ) : (
                     <div
-                      className={`px-3 py-2 rounded-xl break-words text-white ${
+                      className={`rounded-xl overflow-hidden ${
                         isMine ? "bg-violet-600" : "bg-gray-700"
                       }`}
                     >
-                      {msg.text}
+                      {msg.replyTo?.messageId && (
+                        <button
+                          type="button"
+                          onClick={() => scrollToMessage(msg.replyTo.messageId)}
+                          className={`w-full text-left px-3 pt-2 pb-1 border-l-2 ${
+                            isMine
+                              ? "border-violet-200 bg-black/20"
+                              : "border-violet-400 bg-black/20"
+                          }`}
+                        >
+                          <p className="text-[11px] font-medium text-violet-200">
+                            {getReplySenderName(msg.replyTo)}
+                          </p>
+                          <p className="text-[11px] text-gray-300 truncate">
+                            {msg.replyTo.isDeleted
+                              ? "Message deleted"
+                              : msg.replyTo.image
+                                ? "Photo"
+                                : msg.replyTo.text || ""}
+                          </p>
+                        </button>
+                      )}
+
+                      {msg.image ? (
+                        <img
+                          src={msg.image}
+                          alt=""
+                          className="rounded-lg max-w-[220px] block"
+                        />
+                      ) : (
+                        <div className="px-3 py-2 break-words text-white">
+                          {msg.text}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -315,11 +405,39 @@ const ChatContainer = () => {
           </div>
         )}
 
+        {replyingTo && !editingMessage && (
+          <div className="flex items-start justify-between gap-2 mx-1 mb-2 px-3 py-2 rounded-lg bg-white/10 border-l-4 border-violet-400">
+            <div className="min-w-0">
+              <p className="text-xs text-violet-300 font-medium">
+                Replying to{" "}
+                {String(replyingTo.senderId) === String(authUser._id)
+                  ? "yourself"
+                  : selectedUser.fullName}
+              </p>
+              <p className="text-xs text-gray-300 truncate">
+                {getReplyLabel(replyingTo)}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="text-gray-300 hover:text-white text-sm"
+              onClick={cancelReply}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 bg-white/10 rounded-full px-4">
           <input
+            ref={inputRef}
             type="text"
             placeholder={
-              editingMessage ? "Edit your message..." : "Type a message..."
+              editingMessage
+                ? "Edit your message..."
+                : replyingTo
+                  ? "Type a reply..."
+                  : "Type a message..."
             }
             className="flex-1 bg-transparent outline-none text-white py-3 placeholder-gray-400"
             value={input}
