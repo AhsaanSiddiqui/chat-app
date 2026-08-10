@@ -1,13 +1,17 @@
-import React, { useContext, useState } from 'react'
+import React, { useContext, useEffect } from 'react'
 import Sidebar from '../components/Sidebar'
 import ChatContainer from '../components/ChatContainer'
 import RightSidebar from '../components/RightSidebar'
 import { ChatContext } from '../../context/ChatContext';
+import { ensureNotificationPermission } from '../lib/notifications';
 
 const HomePage = () => {
 
   const { selectedUser } = useContext(ChatContext)
 
+  useEffect(() => {
+    ensureNotificationPermission();
+  }, []);
 
   return (
     <div className=" w-full h-screen ">
