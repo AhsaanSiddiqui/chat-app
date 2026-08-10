@@ -11,6 +11,8 @@ const ChatContainer = () => {
     selectedUser,
     setSelectedUser,
     sendMessage,
+    editMessage,
+    deleteMessage,
     getMessages,
   } = useContext(ChatContext);
 
@@ -18,26 +20,43 @@ const ChatContainer = () => {
 
   const scrollEnd = useRef(null);
   const [input, setInput] = useState("");
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [menuOpenId, setMenuOpenId] = useState(null);
 
-  // Get messages when user is selected
   useEffect(() => {
     if (selectedUser) {
       getMessages(selectedUser._id);
+      setEditingMessage(null);
+      setInput("");
+      setMenuOpenId(null);
     }
   }, [selectedUser]);
 
-  // Auto scroll
   useEffect(() => {
     if (scrollEnd.current) {
       scrollEnd.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
 
-  // Send text message
+  useEffect(() => {
+    const closeMenu = () => setMenuOpenId(null);
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, []);
+
   const handleSendMessage = async (e) => {
     e.preventDefault();
 
     if (!input.trim()) return;
+
+    if (editingMessage) {
+      const ok = await editMessage(editingMessage._id, input.trim());
+      if (ok) {
+        setEditingMessage(null);
+        setInput("");
+      }
+      return;
+    }
 
     await sendMessage({
       text: input.trim(),
@@ -46,12 +65,17 @@ const ChatContainer = () => {
     setInput("");
   };
 
-  // Send image
   const handleSendImage = (e) => {
     const file = e.target.files[0];
 
     if (!file || !file.type.startsWith("image/")) {
       toast.error("Please select an image");
+      return;
+    }
+
+    if (editingMessage) {
+      toast.error("Finish or cancel editing before sending an image");
+      e.target.value = "";
       return;
     }
 
@@ -68,6 +92,27 @@ const ChatContainer = () => {
     reader.readAsDataURL(file);
   };
 
+  const startEdit = (msg) => {
+    if (msg.isDeleted || msg.image) return;
+    setEditingMessage(msg);
+    setInput(msg.text || "");
+    setMenuOpenId(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingMessage(null);
+    setInput("");
+  };
+
+  const handleDelete = async (msg) => {
+    setMenuOpenId(null);
+    if (!window.confirm("Delete this message for everyone?")) return;
+    await deleteMessage(msg._id);
+    if (editingMessage && String(editingMessage._id) === String(msg._id)) {
+      cancelEdit();
+    }
+  };
+
   if (!selectedUser) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 text-gray-500 bg-white/10 h-full max-md:hidden">
@@ -81,8 +126,6 @@ const ChatContainer = () => {
 
   return (
     <div className="flex flex-col h-full overflow-hidden backdrop-blur-lg">
-
-      {/* Header */}
       <div className="flex items-center gap-3 p-4 border-b border-gray-700 flex-shrink-0">
         <img
           src={selectedUser.profilePic || assets.avatar_icon}
@@ -91,9 +134,7 @@ const ChatContainer = () => {
         />
 
         <div className="flex-1">
-          <p className="text-white font-medium">
-            {selectedUser.fullName}
-          </p>
+          <p className="text-white font-medium">{selectedUser.fullName}</p>
 
           {onlineUsers.includes(selectedUser._id) ? (
             <p className="text-green-400 text-xs">Online</p>
@@ -109,83 +150,149 @@ const ChatContainer = () => {
           className="w-6 cursor-pointer md:hidden"
         />
 
-        <img
-          src={assets.help_icon}
-          alt=""
-          className="w-5 hidden md:block"
-        />
+        <img src={assets.help_icon} alt="" className="w-5 hidden md:block" />
       </div>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <div className="flex flex-col gap-3">
-          {messages.map((msg, index) => (
-            <div
-              key={index}
-              className={`flex ${String(msg.senderId) === String(authUser._id)
-                ? "justify-end"
-                : "justify-start"
-                }`}
-            >
-              <div className="max-w-xs">
-                {msg.image ? (
-                  <img
-                    src={msg.image}
-                    alt=""
-                    className="rounded-lg max-w-[220px]"
-                  />
-                ) : (
-                  <div
-                    className={`px-3 py-2 rounded-xl break-words text-white ${String(msg.senderId) === String(authUser._id)
-                      ? "bg-violet-600"
-                      : "bg-gray-700"
-                      }`}
-                  >
-                    {msg.text}
-                  </div>
-                )}
+          {messages.map((msg) => {
+            const isMine = String(msg.senderId) === String(authUser._id);
 
-                <p className="text-[10px] text-gray-400 mt-1">
-                  {formatMessageTime(msg.createdAt)}
-                </p>
+            return (
+              <div
+                key={msg._id}
+                className={`flex group ${isMine ? "justify-end" : "justify-start"}`}
+              >
+                <div className={`max-w-xs relative ${isMine ? "items-end" : "items-start"}`}>
+                  {isMine && !msg.isDeleted && (
+                    <div className="absolute -top-1 -left-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        className="text-gray-300 hover:text-white text-lg px-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuOpenId(
+                            menuOpenId === msg._id ? null : msg._id
+                          );
+                        }}
+                      >
+                        ⋮
+                      </button>
+
+                      {menuOpenId === msg._id && (
+                        <div
+                          className="absolute left-0 top-6 z-20 min-w-[110px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {!msg.image && (
+                            <button
+                              type="button"
+                              className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
+                              onClick={() => startEdit(msg)}
+                            >
+                              Edit
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="block w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-800"
+                            onClick={() => handleDelete(msg)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {msg.isDeleted ? (
+                    <div
+                      className={`px-3 py-2 rounded-xl italic text-gray-400 ${
+                        isMine ? "bg-violet-600/40" : "bg-gray-700/60"
+                      }`}
+                    >
+                      This message was deleted
+                    </div>
+                  ) : msg.image ? (
+                    <img
+                      src={msg.image}
+                      alt=""
+                      className="rounded-lg max-w-[220px]"
+                    />
+                  ) : (
+                    <div
+                      className={`px-3 py-2 rounded-xl break-words text-white ${
+                        isMine ? "bg-violet-600" : "bg-gray-700"
+                      }`}
+                    >
+                      {msg.text}
+                    </div>
+                  )}
+
+                  <p
+                    className={`text-[10px] text-gray-400 mt-1 ${
+                      isMine ? "text-right" : "text-left"
+                    }`}
+                  >
+                    {msg.isEdited && !msg.isDeleted && (
+                      <span className="mr-1 italic">edited</span>
+                    )}
+                    {formatMessageTime(msg.createdAt)}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           <div ref={scrollEnd}></div>
         </div>
       </div>
 
-      {/* Bottom */}
       <div className="border-t border-gray-700 p-3 flex-shrink-0">
-        <div className="flex items-center gap-2 bg-white/10 rounded-full px-4">
+        {editingMessage && (
+          <div className="flex items-center justify-between px-2 pb-2 text-xs text-violet-300">
+            <span>Editing message</span>
+            <button
+              type="button"
+              className="text-gray-300 hover:text-white"
+              onClick={cancelEdit}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
 
+        <div className="flex items-center gap-2 bg-white/10 rounded-full px-4">
           <input
             type="text"
-            placeholder="Type a message..."
+            placeholder={
+              editingMessage ? "Edit your message..." : "Type a message..."
+            }
             className="flex-1 bg-transparent outline-none text-white py-3 placeholder-gray-400"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) =>
-              e.key === "Enter" && handleSendMessage(e)
-            }
+            onKeyDown={(e) => e.key === "Enter" && handleSendMessage(e)}
           />
 
-          <input
-            type="file"
-            id="image"
-            hidden
-            accept="image/*"
-            onChange={handleSendImage}
-          />
+          {!editingMessage && (
+            <>
+              <input
+                type="file"
+                id="image"
+                hidden
+                accept="image/*"
+                onChange={handleSendImage}
+              />
 
-          <label htmlFor="image">
-            <img
-              src={assets.gallery_icon}
-              alt=""
-              className="w-5 cursor-pointer"
-            />
-          </label>
+              <label htmlFor="image">
+                <img
+                  src={assets.gallery_icon}
+                  alt=""
+                  className="w-5 cursor-pointer"
+                />
+              </label>
+            </>
+          )}
 
           <img
             src={assets.send_button}
@@ -193,10 +300,8 @@ const ChatContainer = () => {
             className="w-7 cursor-pointer"
             onClick={handleSendMessage}
           />
-
         </div>
       </div>
-
     </div>
   );
 };

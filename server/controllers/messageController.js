@@ -110,3 +110,82 @@ export const sendMessage = async (req, res) => {
         res.json({ success: false, message: error.message })
     }
 }
+
+const emitToChatUsers = (message, event, payload) => {
+    const senderSocketId = userSocketMap[String(message.senderId)];
+    const receiverSocketId = userSocketMap[String(message.receiverId)];
+
+    if (senderSocketId) io.to(senderSocketId).emit(event, payload);
+    if (receiverSocketId) io.to(receiverSocketId).emit(event, payload);
+};
+
+// Edit a text message
+export const editMessage = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { text } = req.body;
+        const userId = req.user._id;
+
+        if (!text?.trim()) {
+            return res.json({ success: false, message: "Message text is required" });
+        }
+
+        const message = await Message.findById(id);
+        if (!message) {
+            return res.json({ success: false, message: "Message not found" });
+        }
+
+        if (String(message.senderId) !== String(userId)) {
+            return res.json({ success: false, message: "You can only edit your own messages" });
+        }
+
+        if (message.isDeleted) {
+            return res.json({ success: false, message: "Deleted messages cannot be edited" });
+        }
+
+        if (message.image && !message.text) {
+            return res.json({ success: false, message: "Image messages cannot be edited" });
+        }
+
+        message.text = text.trim();
+        message.isEdited = true;
+        await message.save();
+
+        emitToChatUsers(message, "messageUpdated", message);
+
+        res.json({ success: true, message });
+    } catch (error) {
+        console.log(error.message);
+        res.json({ success: false, message: error.message });
+    }
+};
+
+// Soft-delete a message
+export const deleteMessage = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user._id;
+
+        const message = await Message.findById(id);
+        if (!message) {
+            return res.json({ success: false, message: "Message not found" });
+        }
+
+        if (String(message.senderId) !== String(userId)) {
+            return res.json({ success: false, message: "You can only delete your own messages" });
+        }
+
+        message.text = "";
+        message.image = "";
+        message.isDeleted = true;
+        message.isEdited = false;
+        await message.save();
+
+        emitToChatUsers(message, "messageDeleted", message);
+
+        res.json({ success: true, message });
+    } catch (error) {
+        console.log(error.message);
+        res.json({ success: false, message: error.message });
+    }
+};

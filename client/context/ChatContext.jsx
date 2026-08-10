@@ -69,6 +69,46 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
+  const editMessage = async (messageId, text) => {
+    try {
+      const { data } = await axios.put(`/api/messages/edit/${messageId}`, {
+        text,
+      });
+      if (data.success) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            String(msg._id) === String(data.message._id) ? data.message : msg
+          )
+        );
+        return true;
+      }
+      toast.error(data.message || "Failed to edit message");
+      return false;
+    } catch (error) {
+      toast.error(error.message);
+      return false;
+    }
+  };
+
+  const deleteMessage = async (messageId) => {
+    try {
+      const { data } = await axios.delete(`/api/messages/delete/${messageId}`);
+      if (data.success) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            String(msg._id) === String(data.message._id) ? data.message : msg
+          )
+        );
+        return true;
+      }
+      toast.error(data.message || "Failed to delete message");
+      return false;
+    } catch (error) {
+      toast.error(error.message);
+      return false;
+    }
+  };
+
   const notifyNewMessage = (newMessage) => {
     if (!isAppInBackground()) return;
 
@@ -96,10 +136,20 @@ export const ChatProvider = ({ children }) => {
     });
   };
 
-  const subscribeToMessages = () => {
+  const isMessageInOpenChat = (message) => {
+    const currentSelected = selectedUserRef.current;
+    if (!currentSelected) return false;
+
+    return (
+      String(message.senderId) === String(currentSelected._id) ||
+      String(message.receiverId) === String(currentSelected._id)
+    );
+  };
+
+  useEffect(() => {
     if (!socket) return;
 
-    socket.on("newMessage", (newMessage) => {
+    const onNewMessage = (newMessage) => {
       const currentSelected = selectedUserRef.current;
 
       if (
@@ -119,17 +169,36 @@ export const ChatProvider = ({ children }) => {
       }
 
       notifyNewMessage(newMessage);
-    });
-  };
+    };
 
-  const unsubscribeFromMessages = () => {
-    if (socket) socket.off("newMessage");
-  };
+    const onMessageUpdated = (updatedMessage) => {
+      if (!isMessageInOpenChat(updatedMessage)) return;
+      setMessages((prev) =>
+        prev.map((msg) =>
+          String(msg._id) === String(updatedMessage._id) ? updatedMessage : msg
+        )
+      );
+    };
 
-  useEffect(() => {
-    subscribeToMessages();
-    return () => unsubscribeFromMessages();
-  }, [socket]);
+    const onMessageDeleted = (deletedMessage) => {
+      if (!isMessageInOpenChat(deletedMessage)) return;
+      setMessages((prev) =>
+        prev.map((msg) =>
+          String(msg._id) === String(deletedMessage._id) ? deletedMessage : msg
+        )
+      );
+    };
+
+    socket.on("newMessage", onNewMessage);
+    socket.on("messageUpdated", onMessageUpdated);
+    socket.on("messageDeleted", onMessageDeleted);
+
+    return () => {
+      socket.off("newMessage", onNewMessage);
+      socket.off("messageUpdated", onMessageUpdated);
+      socket.off("messageDeleted", onMessageDeleted);
+    };
+  }, [socket, axios]);
 
   const value = {
     messages,
@@ -138,6 +207,8 @@ export const ChatProvider = ({ children }) => {
     getUsers,
     getMessages,
     sendMessage,
+    editMessage,
+    deleteMessage,
     setSelectedUser,
     unseenMessages,
     setUnseenMessages,
