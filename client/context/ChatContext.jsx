@@ -8,6 +8,8 @@ import {
 
 export const ChatContext = createContext();
 
+const SELECTED_CHAT_KEY = "quickchat_selected_user_id";
+
 export const ChatProvider = ({ children }) => {
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
@@ -16,7 +18,8 @@ export const ChatProvider = ({ children }) => {
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
 
-  const { socket, axios, authUser } = useContext(AuthContext);
+  const { socket, axios, authUser, ensureSocketConnected } =
+    useContext(AuthContext);
 
   const usersRef = useRef(users);
   const selectedUserRef = useRef(selectedUser);
@@ -26,6 +29,7 @@ export const ChatProvider = ({ children }) => {
   const messagesAbortRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
+  const chatRestoredRef = useRef(false);
 
   useEffect(() => {
     usersRef.current = users;
@@ -42,6 +46,39 @@ export const ChatProvider = ({ children }) => {
   useEffect(() => {
     setSelectedUserRef.current = setSelectedUser;
   }, [setSelectedUser]);
+
+  // Remember last opened chat across reloads
+  useEffect(() => {
+    if (selectedUser?._id) {
+      localStorage.setItem(SELECTED_CHAT_KEY, selectedUser._id);
+    }
+  }, [selectedUser?._id]);
+
+  // Restore last chat after users list loads
+  useEffect(() => {
+    if (chatRestoredRef.current || !users.length) return;
+
+    const savedId = localStorage.getItem(SELECTED_CHAT_KEY);
+    chatRestoredRef.current = true;
+
+    if (!savedId) return;
+
+    const found = users.find((user) => String(user._id) === String(savedId));
+    if (found) setSelectedUser(found);
+  }, [users]);
+
+  // Clear saved chat on logout / session end
+  useEffect(() => {
+    if (!authUser) {
+      chatRestoredRef.current = false;
+      setSelectedUser(null);
+      setMessages([]);
+      setUsers([]);
+      setUnseenMessages({});
+      messageCacheRef.current = {};
+      localStorage.removeItem(SELECTED_CHAT_KEY);
+    }
+  }, [authUser]);
 
   // Keep open-chat cache in sync with live message updates
   useEffect(() => {
@@ -390,6 +427,33 @@ export const ChatProvider = ({ children }) => {
       socket.off("messagesSeen", onMessagesSeen);
     };
   }, [socket, axios]);
+
+  // When tab becomes active again, sync missed messages automatically
+  useEffect(() => {
+    if (!authUser) return;
+
+    const syncChatOnActive = () => {
+      if (document.visibilityState && document.visibilityState !== "visible") {
+        return;
+      }
+
+      ensureSocketConnected?.();
+      getUsers();
+
+      const selectedId = selectedUserRef.current?._id;
+      if (selectedId) {
+        getMessages(selectedId);
+      }
+    };
+
+    document.addEventListener("visibilitychange", syncChatOnActive);
+    window.addEventListener("focus", syncChatOnActive);
+
+    return () => {
+      document.removeEventListener("visibilitychange", syncChatOnActive);
+      window.removeEventListener("focus", syncChatOnActive);
+    };
+  }, [authUser, ensureSocketConnected]);
 
   const value = {
     messages,

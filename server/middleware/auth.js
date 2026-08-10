@@ -29,7 +29,10 @@ export const protectRoute = async (req, res, next) => {
     console.log(error.message);
     res.status(401).json({
       success: false,
-      message: error.message,
+      message:
+        error.name === "TokenExpiredError"
+          ? "Session expired. Please login again."
+          : error.message,
     });
   }
 };
