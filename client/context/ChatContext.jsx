@@ -15,17 +15,22 @@ export const ChatProvider = ({ children }) => {
   const [unseenMessages, setUnseenMessages] = useState({});
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
 
-  const { socket, axios } = useContext(AuthContext);
+  const { socket, axios, authUser } = useContext(AuthContext);
 
   const usersRef = useRef(users);
   const selectedUserRef = useRef(selectedUser);
   const setSelectedUserRef = useRef(setSelectedUser);
+  const messagesRef = useRef(messages);
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
 
   useEffect(() => {
     usersRef.current = users;
   }, [users]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     selectedUserRef.current = selectedUser;
@@ -109,15 +114,58 @@ export const ChatProvider = ({ children }) => {
   };
 
   const sendMessage = async (messageData) => {
+    if (!selectedUser?._id || !authUser?._id) return;
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const optimisticMessage = {
+      _id: tempId,
+      senderId: authUser._id,
+      receiverId: selectedUser._id,
+      text: messageData.text || "",
+      image: messageData.image || "",
+      seen: false,
+      isEdited: false,
+      isDeleted: false,
+      createdAt: new Date().toISOString(),
+      pending: true,
+    };
+
+    if (messageData.replyTo) {
+      const original = messagesRef.current.find(
+        (msg) => String(msg._id) === String(messageData.replyTo)
+      );
+      if (original) {
+        optimisticMessage.replyTo = {
+          messageId: original._id,
+          senderId: original.senderId,
+          text: original.isDeleted ? "" : original.text,
+          image: original.isDeleted ? "" : original.image,
+          isDeleted: !!original.isDeleted,
+        };
+      }
+    }
+
+    setMessages((prev) => [...prev, optimisticMessage]);
+
     try {
       const { data } = await axios.post(
         `/api/messages/send/${selectedUser._id}`,
         messageData
       );
       if (data.success) {
-        setMessages((preMessages) => [...preMessages, data.newMessage]);
+        setMessages((prev) =>
+          prev.map((msg) =>
+            String(msg._id) === tempId ? data.newMessage : msg
+          )
+        );
+      } else {
+        setMessages((prev) =>
+          prev.filter((msg) => String(msg._id) !== tempId)
+        );
+        toast.error(data.message || "Failed to send message");
       }
     } catch (error) {
+      setMessages((prev) => prev.filter((msg) => String(msg._id) !== tempId));
       toast.error(error.message);
     }
   };

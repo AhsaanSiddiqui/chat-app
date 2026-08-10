@@ -80,13 +80,17 @@ const ChatContainer = () => {
       return;
     }
 
-    await sendMessage({
-      text: input.trim(),
-      ...(replyingTo ? { replyTo: replyingTo._id } : {}),
-    });
+    const text = input.trim();
+    const replyId = replyingTo?._id;
 
+    // Clear UI immediately so send feels instant
     setInput("");
     setReplyingTo(null);
+
+    sendMessage({
+      text,
+      ...(replyId ? { replyTo: replyId } : {}),
+    });
   };
 
   const handleInputChange = (e) => {
@@ -117,14 +121,15 @@ const ChatContainer = () => {
     }
 
     const reader = new FileReader();
+    const replyId = replyingTo?._id;
+    setReplyingTo(null);
 
-    reader.onloadend = async () => {
-      await sendMessage({
+    reader.onloadend = () => {
+      sendMessage({
         image: reader.result,
-        ...(replyingTo ? { replyTo: replyingTo._id } : {}),
+        ...(replyId ? { replyTo: replyId } : {}),
       });
 
-      setReplyingTo(null);
       e.target.value = "";
     };
 
@@ -225,6 +230,7 @@ const ChatContainer = () => {
         <div className="flex flex-col gap-3">
           {messages.map((msg) => {
             const isMine = String(msg.senderId) === String(authUser._id);
+            const isPending = !!msg.pending || String(msg._id).startsWith("temp-");
             const avatarSrc = isMine
               ? authUser.profilePic || assets.avatar_icon
               : selectedUser.profilePic || assets.avatar_icon;
@@ -233,7 +239,7 @@ const ChatContainer = () => {
               <div
                 key={msg._id}
                 id={`msg-${msg._id}`}
-                className={`flex group items-end gap-2 rounded-lg transition-shadow ${isMine ? "justify-end" : "justify-start"}`}
+                className={`flex group items-end gap-2 rounded-lg transition-shadow ${isMine ? "justify-end" : "justify-start"} ${isPending ? "opacity-80" : ""}`}
               >
                 {!isMine && (
                   <img
@@ -244,7 +250,7 @@ const ChatContainer = () => {
                 )}
 
                 <div className={`max-w-lg relative ${isMine ? "items-end" : "items-start"}`}>
-                  {!msg.isDeleted && (
+                  {!msg.isDeleted && !isPending && (
                     <div
                       className={`absolute -top-1 opacity-0 group-hover:opacity-100 transition-opacity ${
                         isMine ? "-left-8" : "-right-8"
@@ -363,11 +369,17 @@ const ChatContainer = () => {
                     {isMine && !msg.isDeleted && (
                       <span
                         className={`ml-0.5 tracking-tighter ${
-                          msg.seen ? "text-sky-400" : "text-gray-400"
+                          isPending
+                            ? "text-gray-500"
+                            : msg.seen
+                              ? "text-sky-400"
+                              : "text-gray-400"
                         }`}
-                        title={msg.seen ? "Read" : "Sent"}
+                        title={
+                          isPending ? "Sending..." : msg.seen ? "Read" : "Sent"
+                        }
                       >
-                        {msg.seen ? "✓✓" : "✓"}
+                        {isPending ? "◷" : msg.seen ? "✓✓" : "✓"}
                       </span>
                     )}
                   </p>
