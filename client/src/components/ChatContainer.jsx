@@ -29,6 +29,7 @@ const ChatContainer = () => {
   const [replyingTo, setReplyingTo] = useState(null);
   const [pendingImage, setPendingImage] = useState(null);
   const [menuOpenId, setMenuOpenId] = useState(null);
+  const [lightboxImage, setLightboxImage] = useState(null);
 
   useEffect(() => {
     if (selectedUser?._id) {
@@ -36,6 +37,7 @@ const ChatContainer = () => {
       setEditingMessage(null);
       setReplyingTo(null);
       setPendingImage(null);
+      setLightboxImage(null);
       setInput("");
       setMenuOpenId(null);
       stopTyping();
@@ -53,6 +55,22 @@ const ChatContainer = () => {
     window.addEventListener("click", closeMenu);
     return () => window.removeEventListener("click", closeMenu);
   }, []);
+
+  useEffect(() => {
+    if (!lightboxImage) return;
+
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setLightboxImage(null);
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [lightboxImage]);
 
   const getReplyLabel = (msg) => {
     if (!msg) return "";
@@ -405,7 +423,8 @@ const ChatContainer = () => {
                         <img
                           src={msg.image}
                           alt=""
-                          className="rounded-lg max-w-[220px] block"
+                          onClick={() => setLightboxImage(msg.image)}
+                          className="rounded-lg max-w-[220px] block cursor-zoom-in hover:opacity-95 transition"
                         />
                       ) : (
                         <div className="px-3 py-2 break-words text-white">
@@ -535,7 +554,8 @@ const ChatContainer = () => {
             <img
               src={pendingImage}
               alt="Preview"
-              className="max-h-40 rounded-lg object-contain"
+              onClick={() => setLightboxImage(pendingImage)}
+              className="max-h-40 rounded-lg object-contain cursor-zoom-in"
             />
             <p className="text-[11px] text-gray-400 mt-2">
               Press send to share, or ✕ to cancel
@@ -592,6 +612,29 @@ const ChatContainer = () => {
           />
         </div>
       </div>
+
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-[fadeIn_0.15s_ease]"
+          onClick={() => setLightboxImage(null)}
+        >
+          <button
+            type="button"
+            aria-label="Close image"
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white text-xl flex items-center justify-center"
+            onClick={() => setLightboxImage(null)}
+          >
+            ✕
+          </button>
+
+          <img
+            src={lightboxImage}
+            alt="Full size"
+            className="max-w-[95vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 };
