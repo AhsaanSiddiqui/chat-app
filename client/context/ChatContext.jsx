@@ -356,7 +356,7 @@ export const ChatProvider = ({ children }) => {
       }
     };
 
-    const onMessagesSeen = ({ chatUserId, messageIds }) => {
+    const onMessagesSeen = ({ chatUserId, messageIds, seenAt }) => {
       const currentSelected = selectedUserRef.current;
       if (
         !currentSelected ||
@@ -366,9 +366,12 @@ export const ChatProvider = ({ children }) => {
       }
 
       const idSet = new Set((messageIds || []).map(String));
+      const readAt = seenAt || new Date().toISOString();
       setMessages((prev) =>
         prev.map((msg) =>
-          idSet.has(String(msg._id)) ? { ...msg, seen: true } : msg
+          idSet.has(String(msg._id))
+            ? { ...msg, seen: true, seenAt: msg.seenAt || readAt }
+            : msg
         )
       );
     };

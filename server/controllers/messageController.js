@@ -65,13 +65,18 @@ export const getMessages = async (req, res) => {
 
         if (unseen.length > 0) {
             const ids = unseen.map((m) => m._id);
-            await Message.updateMany({ _id: { $in: ids } }, { seen: true });
+            const seenAt = new Date();
+            await Message.updateMany(
+                { _id: { $in: ids } },
+                { seen: true, seenAt }
+            );
 
             const senderSocketId = userSocketMap[String(selectedUserId)];
             if (senderSocketId) {
                 io.to(senderSocketId).emit("messagesSeen", {
                     chatUserId: String(myId),
                     messageIds: ids.map(String),
+                    seenAt,
                 });
             }
         }
@@ -83,6 +88,7 @@ export const getMessages = async (req, res) => {
                 String(obj.receiverId) === String(myId)
             ) {
                 obj.seen = true;
+                if (!obj.seenAt) obj.seenAt = new Date();
             }
             return obj;
         });
@@ -98,11 +104,21 @@ export const getMessages = async (req, res) => {
 export const markMessageAsSeen = async (req, res) => {
     try {
         const { id } = req.params;
-        const message = await Message.findByIdAndUpdate(
-            id,
-            { seen: true },
-            { new: true }
-        );
+        const existing = await Message.findById(id);
+
+        if (!existing) {
+            return res.json({ success: false, message: "Message not found" });
+        }
+
+        let message = existing;
+        if (!existing.seen) {
+            const seenAt = new Date();
+            message = await Message.findByIdAndUpdate(
+                id,
+                { seen: true, seenAt },
+                { new: true }
+            );
+        }
 
         if (message) {
             const senderSocketId = userSocketMap[String(message.senderId)];
@@ -110,6 +126,7 @@ export const markMessageAsSeen = async (req, res) => {
                 io.to(senderSocketId).emit("messagesSeen", {
                     chatUserId: String(message.receiverId),
                     messageIds: [String(message._id)],
+                    seenAt: message.seenAt,
                 });
             }
         }

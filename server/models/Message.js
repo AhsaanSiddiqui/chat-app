@@ -7,6 +7,7 @@ const messageSchema = new mongoose.Schema({
    text: {type: String,},
    image: {type: String,},
    seen: {type: Boolean, default: false},
+   seenAt: {type: Date},
    isEdited: {type: Boolean, default: false},
    isDeleted: {type: Boolean, default: false},
    replyTo: {

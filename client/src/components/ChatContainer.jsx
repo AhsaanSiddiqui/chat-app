@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
 import assets from "../assets/assets";
-import { formatMessageTime } from "../lib/utils";
+import { formatMessageTime, formatSeenTime } from "../lib/utils";
 import { AuthContext } from "../../context/AuthContext";
 import { ChatContext } from "../../context/ChatContext";
 import toast from "react-hot-toast";
@@ -269,12 +269,29 @@ const ChatContainer = () => {
           </div>
         ) : (
         <div className="flex flex-col gap-3">
-          {messages.map((msg) => {
+          {(() => {
+            const lastSeenOwnId = [...messages]
+              .reverse()
+              .find(
+                (m) =>
+                  String(m.senderId) === String(authUser._id) &&
+                  m.seen &&
+                  !m.isDeleted &&
+                  !m.pending &&
+                  !String(m._id).startsWith("temp-")
+              )?._id;
+
+            return messages.map((msg) => {
             const isMine = String(msg.senderId) === String(authUser._id);
             const isPending = !!msg.pending || String(msg._id).startsWith("temp-");
             const avatarSrc = isMine
               ? authUser.profilePic || assets.avatar_icon
               : selectedUser.profilePic || assets.avatar_icon;
+            const showSeenTime =
+              isMine &&
+              msg.seen &&
+              msg.seenAt &&
+              String(msg._id) === String(lastSeenOwnId);
 
             return (
               <div
@@ -417,13 +434,23 @@ const ChatContainer = () => {
                               : "text-gray-400"
                         }`}
                         title={
-                          isPending ? "Sending..." : msg.seen ? "Read" : "Sent"
+                          isPending
+                            ? "Sending..."
+                            : msg.seen
+                              ? formatSeenTime(msg.seenAt, msg.createdAt)
+                              : "Sent"
                         }
                       >
                         {isPending ? "◷" : msg.seen ? "✓✓" : "✓"}
                       </span>
                     )}
                   </p>
+
+                  {showSeenTime && (
+                    <p className="text-[10px] text-sky-400 mt-0.5 text-right">
+                      {formatSeenTime(msg.seenAt, msg.createdAt)}
+                    </p>
+                  )}
                 </div>
 
                 {isMine && (
@@ -435,7 +462,8 @@ const ChatContainer = () => {
                 )}
               </div>
             );
-          })}
+          });
+          })()}
 
           <div ref={scrollEnd}></div>
         </div>
