@@ -27,6 +27,7 @@ const ChatContainer = () => {
   const [input, setInput] = useState("");
   const [editingMessage, setEditingMessage] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
+  const [pendingImage, setPendingImage] = useState(null);
   const [menuOpenId, setMenuOpenId] = useState(null);
 
   useEffect(() => {
@@ -34,6 +35,7 @@ const ChatContainer = () => {
       getMessages(selectedUser._id);
       setEditingMessage(null);
       setReplyingTo(null);
+      setPendingImage(null);
       setInput("");
       setMenuOpenId(null);
       stopTyping();
@@ -68,11 +70,10 @@ const ChatContainer = () => {
   const handleSendMessage = async (e) => {
     e.preventDefault();
 
-    if (!input.trim()) return;
-
     stopTyping();
 
     if (editingMessage) {
+      if (!input.trim()) return;
       const ok = await editMessage(editingMessage._id, input.trim());
       if (ok) {
         setEditingMessage(null);
@@ -81,10 +82,25 @@ const ChatContainer = () => {
       return;
     }
 
+    // Send pending pasted/selected image
+    if (pendingImage) {
+      const replyId = replyingTo?._id;
+      const imageData = pendingImage;
+      setPendingImage(null);
+      setReplyingTo(null);
+      setInput("");
+      sendMessage({
+        image: imageData,
+        ...(replyId ? { replyTo: replyId } : {}),
+      });
+      return;
+    }
+
+    if (!input.trim()) return;
+
     const text = input.trim();
     const replyId = replyingTo?._id;
 
-    // Clear UI immediately so send feels instant
     setInput("");
     setReplyingTo(null);
 
@@ -107,35 +123,28 @@ const ChatContainer = () => {
     }
   };
 
-  const sendImageFile = (file) => {
+  const loadImagePreview = (file) => {
     if (!file || !file.type.startsWith("image/")) {
       toast.error("Please paste or select an image");
       return;
     }
 
     if (editingMessage) {
-      toast.error("Finish or cancel editing before sending an image");
+      toast.error("Finish or cancel editing before attaching an image");
       return;
     }
 
     const reader = new FileReader();
-    const replyId = replyingTo?._id;
-    setReplyingTo(null);
-    stopTyping();
-
     reader.onloadend = () => {
-      sendMessage({
-        image: reader.result,
-        ...(replyId ? { replyTo: replyId } : {}),
-      });
+      setPendingImage(reader.result);
+      setTimeout(() => inputRef.current?.focus(), 0);
     };
-
     reader.readAsDataURL(file);
   };
 
   const handleSendImage = (e) => {
     const file = e.target.files[0];
-    sendImageFile(file);
+    loadImagePreview(file);
     e.target.value = "";
   };
 
@@ -149,10 +158,14 @@ const ChatContainer = () => {
       if (item.type.startsWith("image/")) {
         e.preventDefault();
         const file = item.getAsFile();
-        if (file) sendImageFile(file);
+        if (file) loadImagePreview(file);
         return;
       }
     }
+  };
+
+  const cancelPendingImage = () => {
+    setPendingImage(null);
   };
 
   const startReply = (msg) => {
@@ -166,6 +179,7 @@ const ChatContainer = () => {
   const startEdit = (msg) => {
     if (msg.isDeleted || msg.image) return;
     setReplyingTo(null);
+    setPendingImage(null);
     setEditingMessage(msg);
     setInput(msg.text || "");
     setMenuOpenId(null);
@@ -478,6 +492,29 @@ const ChatContainer = () => {
           </div>
         )}
 
+        {pendingImage && !editingMessage && (
+          <div className="mx-1 mb-2 p-2 rounded-xl bg-white/10 border border-white/10">
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <p className="text-xs text-violet-300">Image ready to send</p>
+              <button
+                type="button"
+                className="text-gray-300 hover:text-white text-sm"
+                onClick={cancelPendingImage}
+              >
+                ✕
+              </button>
+            </div>
+            <img
+              src={pendingImage}
+              alt="Preview"
+              className="max-h-40 rounded-lg object-contain"
+            />
+            <p className="text-[11px] text-gray-400 mt-2">
+              Press send to share, or ✕ to cancel
+            </p>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 bg-white/10 rounded-full px-4">
           <input
             ref={inputRef}
@@ -485,9 +522,11 @@ const ChatContainer = () => {
             placeholder={
               editingMessage
                 ? "Edit your message..."
+                : pendingImage
+                  ? "Add a caption? (optional — press send for image)"
                   : replyingTo
-                  ? "Type a reply..."
-                  : "Type a message... (paste image with Ctrl+V)"
+                    ? "Type a reply..."
+                    : "Type a message... (paste image with Ctrl+V)"
             }
             className="flex-1 bg-transparent outline-none text-white py-3 placeholder-gray-400"
             value={input}
