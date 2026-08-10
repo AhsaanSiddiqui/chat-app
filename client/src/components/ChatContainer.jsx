@@ -61,6 +61,7 @@ const ChatContainer = () => {
     setInput("");
     setMenuOpenId(null);
     stopTyping();
+    setTimeout(() => inputRef.current?.focus(), 0);
   }, [selectedUser?._id, selectedGroup?._id]);
 
   useEffect(() => {
