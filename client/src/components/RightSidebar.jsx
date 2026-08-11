@@ -54,6 +54,7 @@ const RightSidebar = () => {
   } = useContext(ChatContext);
   const { logout, onlineUsers, authUser } = useContext(AuthContext);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   const [showAddMembers, setShowAddMembers] = useState(false);
   const [pickedMembers, setPickedMembers] = useState([]);
   const [mediaTab, setMediaTab] = useState("media"); // media | files | links
@@ -104,8 +105,14 @@ const RightSidebar = () => {
     return { mediaImages: images, mediaFiles: files, chatLinks: links };
   }, [messages]);
 
+  const mediaImageUrls = useMemo(
+    () => mediaImages.map((file) => file.url).filter(Boolean),
+    [mediaImages]
+  );
+
   useEffect(() => {
     setLightboxImage(null);
+    setLightboxIndex(0);
     setShowAddMembers(false);
     setPickedMembers([]);
     setMediaTab("media");
@@ -331,8 +338,8 @@ const RightSidebar = () => {
       )}
 
       <hr className="border-[#fffff50] my-4" />
-      <div className="px-5 text-xs pb-20">
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
+      <div className="px-3 text-xs pb-20">
+        <div className="flex items-center gap-2 mb-3 flex-wrap justify-center">
           <button
             type="button"
             onClick={() => setMediaTab("media")}
@@ -376,7 +383,10 @@ const RightSidebar = () => {
               {mediaImages.map((file, index) => (
                 <div
                   key={`${file.url}-${index}`}
-                  onClick={() => setLightboxImage(file.url)}
+                  onClick={() => {
+                    setLightboxIndex(index);
+                    setLightboxImage(file.url);
+                  }}
                   className="cursor-zoom-in rounded overflow-hidden aspect-square"
                 >
                   <img
@@ -463,7 +473,12 @@ const RightSidebar = () => {
 
       <ImageLightbox
         src={lightboxImage}
-        onClose={() => setLightboxImage(null)}
+        images={mediaImageUrls}
+        startIndex={lightboxIndex}
+        onClose={() => {
+          setLightboxImage(null);
+          setLightboxIndex(0);
+        }}
       />
 
       <ConfirmModal

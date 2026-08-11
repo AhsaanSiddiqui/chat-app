@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import assets from "../assets/assets";
 import {
   ATTACHMENT_ACCEPT,
@@ -124,11 +124,30 @@ const ChatContainer = () => {
   const [reactAnchorEl, setReactAnchorEl] = useState(null);
   const [showFullEmojiPicker, setShowFullEmojiPicker] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
 
   const activeChat = selectedGroup || selectedUser;
   const isGroupChat = !!selectedGroup;
+
+  const chatImageUrls = useMemo(() => {
+    const urls = [];
+    messages.forEach((msg) => {
+      if (msg.isDeleted || msg.messageType === "system") return;
+      getMessageAttachments(msg).forEach((file) => {
+        if (file?.kind === "image" && file.url) urls.push(file.url);
+      });
+    });
+    return urls;
+  }, [messages]);
+
+  const openLightbox = (url, gallery = chatImageUrls) => {
+    if (!url) return;
+    const index = gallery.indexOf(url);
+    setLightboxIndex(index >= 0 ? index : 0);
+    setLightboxImage(url);
+  };
 
   useEffect(() => {
     pendingAttachmentsRef.current = pendingAttachments;
@@ -152,6 +171,7 @@ const ChatContainer = () => {
       return [];
     });
     setLightboxImage(null);
+    setLightboxIndex(0);
     setInput("");
     setMenuOpenId(null);
     setReactMenuId(null);
@@ -886,9 +906,7 @@ const ChatContainer = () => {
                                   <img
                                     src={file.url}
                                     alt={file.name || ""}
-                                    onClick={() =>
-                                      file.url && setLightboxImage(file.url)
-                                    }
+                                    onClick={() => openLightbox(file.url)}
                                     className="rounded-lg max-h-48 w-full object-cover cursor-zoom-in hover:opacity-95 transition"
                                   />
                                 </div>
@@ -1138,7 +1156,9 @@ const ChatContainer = () => {
                       src={item.previewUrl || item.base64Image}
                       alt={item.name}
                       onClick={() =>
-                        setLightboxImage(item.previewUrl || item.base64Image)
+                        openLightbox(item.previewUrl || item.base64Image, [
+                          item.previewUrl || item.base64Image,
+                        ])
                       }
                       className="max-h-32 w-full rounded-lg object-contain cursor-zoom-in"
                     />
@@ -1216,7 +1236,14 @@ const ChatContainer = () => {
 
       <ImageLightbox
         src={lightboxImage}
-        onClose={() => setLightboxImage(null)}
+        images={
+          chatImageUrls.includes(lightboxImage) ? chatImageUrls : undefined
+        }
+        startIndex={lightboxIndex}
+        onClose={() => {
+          setLightboxImage(null);
+          setLightboxIndex(0);
+        }}
       />
 
       <ConfirmModal

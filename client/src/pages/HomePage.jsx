@@ -18,7 +18,7 @@ const HomePage = () => {
     <div className=" w-full h-screen ">
       <div className={`backdrop-blur-xl  overflow-hidden h-full grid
       ${hasOpenChat
-          ? "grid-cols-1 md:grid-cols-[22%_63%_15%]"
+          ? "grid-cols-1 md:grid-cols-[20%_62%_18%]"
           : "grid-cols-1 md:grid-cols-[30%_70%]"
         }`} >
         <Sidebar />
