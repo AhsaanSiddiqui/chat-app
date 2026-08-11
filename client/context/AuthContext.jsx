@@ -101,12 +101,16 @@ export const AuthProvider = ({ children }) => {
 
   const requestSignup = async (credentials) => {
     try {
-      const { data } = await axios.post("/api/auth/signup/request", credentials);
+      const { data } = await axios.post(
+        "/api/auth/signup/request",
+        credentials,
+        { timeout: 25000 }
+      );
       if (data.success) {
         if (data.emailSent) {
           toast.success(data.message);
         } else {
-          toast.error(data.message || "Email was not sent (SMTP not configured)");
+          toast.error(data.message || "Email was not sent");
         }
         if (data.devCode) {
           toast(`Use this code: ${data.devCode}`, {
@@ -119,7 +123,11 @@ export const AuthProvider = ({ children }) => {
       toast.error(data.message || "Could not start signup");
       return { success: false, data };
     } catch (error) {
-      toast.error(error.response?.data?.message || error.message);
+      const msg =
+        error.code === "ECONNABORTED"
+          ? "Server took too long (email provider). Try again or use Resend on Railway."
+          : error.response?.data?.message || error.message;
+      toast.error(msg);
       return { success: false };
     }
   };
@@ -149,18 +157,29 @@ export const AuthProvider = ({ children }) => {
 
   const resendSignupOtp = async (email) => {
     try {
-      const { data } = await axios.post("/api/auth/signup/resend", { email });
+      const { data } = await axios.post(
+        "/api/auth/signup/resend",
+        { email },
+        { timeout: 25000 }
+      );
       if (data.success) {
         toast.success(data.message);
         if (data.devCode) {
-          toast(`Dev code: ${data.devCode}`, { icon: "🔑", duration: 8000 });
+          toast(`Use this code: ${data.devCode}`, {
+            icon: "🔑",
+            duration: 12000,
+          });
         }
         return { success: true, data };
       }
       toast.error(data.message || "Could not resend code");
       return { success: false, data };
     } catch (error) {
-      toast.error(error.response?.data?.message || error.message);
+      const msg =
+        error.code === "ECONNABORTED"
+          ? "Server took too long. Try again."
+          : error.response?.data?.message || error.message;
+      toast.error(msg);
       return { success: false };
     }
   };

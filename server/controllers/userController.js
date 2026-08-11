@@ -120,12 +120,13 @@ export const requestSignup = async (req, res) => {
       message: mail.sent
         ? "Verification code sent to your email"
         : mail.error ||
-          "SMTP not set. Code shown below for testing — configure SMTP to send real Gmail.",
+          "Could not send email right now. Use the temporary code below, or configure Resend on Railway.",
       email: normalizedEmail,
       accountType: type,
       emailSent: !!mail.sent,
     };
 
+    // Always surface code when mail fails so signup is not blocked on Railway SMTP issues
     if (shouldReturnDevCode() || !mail.sent) {
       payload.devCode = code;
     }
@@ -243,7 +244,7 @@ export const resendSignupOtp = async (req, res) => {
       message: mail.sent
         ? "New verification code sent"
         : mail.error ||
-          "SMTP not set. Code shown below for testing — configure SMTP to send real Gmail.",
+          "Could not send email right now. Use the temporary code below.",
       emailSent: !!mail.sent,
     };
 

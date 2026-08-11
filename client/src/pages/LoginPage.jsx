@@ -47,37 +47,46 @@ const LoginPage = () => {
 
     if (step === "bio") {
       setSubmitting(true);
-      const result = await requestSignup({
-        fullName,
-        email,
-        password,
-        bio,
-        accountType,
-        officeInviteCode,
-      });
-      setSubmitting(false);
-      if (result.success) {
-        setDevCodeHint(result.data?.devCode || "");
-        setStep("otp");
+      try {
+        const result = await requestSignup({
+          fullName,
+          email,
+          password,
+          bio,
+          accountType,
+          officeInviteCode,
+        });
+        if (result.success) {
+          setDevCodeHint(result.data?.devCode || "");
+          setStep("otp");
+        }
+      } finally {
+        setSubmitting(false);
       }
       return;
     }
 
     if (step === "otp") {
       setSubmitting(true);
-      await verifySignup({ email, code: otpCode });
-      setSubmitting(false);
+      try {
+        await verifySignup({ email, code: otpCode });
+      } finally {
+        setSubmitting(false);
+      }
     }
   };
 
   const handleResend = async () => {
     if (submitting || !email) return;
     setSubmitting(true);
-    const result = await resendSignupOtp(email);
-    if (result.success && result.data?.devCode) {
-      setDevCodeHint(result.data.devCode);
+    try {
+      const result = await resendSignupOtp(email);
+      if (result.success && result.data?.devCode) {
+        setDevCodeHint(result.data.devCode);
+      }
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   return (
