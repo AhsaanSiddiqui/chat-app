@@ -5,6 +5,7 @@ import cloudinary from "../lib/cloudinary.js";
 import {
   cleanupUploadedFiles,
   normalizeAttachmentsPayload,
+  removeAttachmentFromMessage,
   removeTempFile,
   uploadManyAttachments,
 } from "../lib/attachments.js";
@@ -451,6 +452,58 @@ export const deleteGroupMessage = async (req, res) => {
     }
 
     res.json({ success: true, message: populated });
+  } catch (error) {
+    console.log(error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+export const deleteGroupMessageAttachment = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { url } = req.body;
+    const message = await GroupMessage.findById(messageId);
+
+    if (!message) {
+      return res.json({ success: false, message: "Message not found" });
+    }
+
+    if (String(message.senderId) !== String(req.user._id)) {
+      return res.json({ success: false, message: "Not allowed" });
+    }
+
+    if (message.isDeleted) {
+      return res.json({ success: false, message: "Message already deleted" });
+    }
+
+    let result;
+    try {
+      result = removeAttachmentFromMessage(message, url);
+    } catch (error) {
+      return res.json({ success: false, message: error.message });
+    }
+
+    await message.save();
+
+    const populated = await GroupMessage.findById(message._id).populate(
+      "senderId",
+      "-password"
+    );
+
+    const group = await Group.findById(message.groupId);
+    if (group) {
+      emitToGroupMembers(
+        group.members,
+        result.fullyDeleted ? "groupMessageDeleted" : "groupMessageUpdated",
+        populated
+      );
+    }
+
+    res.json({
+      success: true,
+      message: populated,
+      fullyDeleted: result.fullyDeleted,
+    });
   } catch (error) {
     console.log(error.message);
     res.json({ success: false, message: error.message });

@@ -3,12 +3,31 @@ import assets from "../assets/assets";
 import { ChatContext } from "../../context/ChatContext";
 import { AuthContext } from "../../context/AuthContext";
 import ImageLightbox from "./ImageLightbox";
-import { getMessageAttachments } from "../lib/utils";
+import {
+  attachmentLabel,
+  formatFileSize,
+  getMessageAttachments,
+} from "../lib/utils";
 
 const resolveId = (value) => {
   if (!value) return "";
   if (typeof value === "object") return String(value._id);
   return String(value);
+};
+
+const fileBadge = (kind) => {
+  switch (kind) {
+    case "pdf":
+      return "PDF";
+    case "excel":
+      return "XLS";
+    case "doc":
+      return "DOC";
+    case "zip":
+      return "ZIP";
+    default:
+      return "FILE";
+  }
 };
 
 const RightSidebar = () => {
@@ -21,33 +40,37 @@ const RightSidebar = () => {
     removeGroupMember,
   } = useContext(ChatContext);
   const { logout, onlineUsers, authUser } = useContext(AuthContext);
-  const [msgImages, setMsgImages] = useState([]);
   const [lightboxImage, setLightboxImage] = useState(null);
   const [showAddMembers, setShowAddMembers] = useState(false);
   const [pickedMembers, setPickedMembers] = useState([]);
+  const [mediaTab, setMediaTab] = useState("media"); // media | files
 
   const active = selectedGroup || selectedUser;
   const isAdmin =
     selectedGroup &&
     resolveId(selectedGroup.admin) === String(authUser?._id);
 
-  useEffect(() => {
-    setMsgImages(
-      messages
-        .flatMap((msg) => {
-          if (msg.isDeleted) return [];
-          return getMessageAttachments(msg)
-            .filter((file) => file.kind === "image" && file.url)
-            .map((file) => file.url);
-        })
-        .filter(Boolean)
-    );
+  const { mediaImages, mediaFiles } = useMemo(() => {
+    const images = [];
+    const files = [];
+
+    messages.forEach((msg) => {
+      if (msg.isDeleted) return;
+      getMessageAttachments(msg).forEach((file) => {
+        if (!file?.url) return;
+        if (file.kind === "image") images.push(file);
+        else files.push(file);
+      });
+    });
+
+    return { mediaImages: images, mediaFiles: files };
   }, [messages]);
 
   useEffect(() => {
     setLightboxImage(null);
     setShowAddMembers(false);
     setPickedMembers([]);
+    setMediaTab("media");
   }, [selectedUser?._id, selectedGroup?._id]);
 
   const memberIds = useMemo(
@@ -227,22 +250,85 @@ const RightSidebar = () => {
 
       <hr className="border-[#fffff50] my-4" />
       <div className="px-5 text-xs pb-20">
-        <p>Media</p>
-        <div className="mt-2 max-h-[200px] overflow-y-scroll grid grid-cols-2 gap-4 opacity-80">
-          {msgImages.map((url, index) => (
-            <div
-              key={`${url}-${index}`}
-              onClick={() => setLightboxImage(url)}
-              className="cursor-zoom-in rounded overflow-hidden"
-            >
-              <img
-                src={url}
-                alt=""
-                className="h-full w-full object-cover rounded-md hover:opacity-90 transition"
-              />
-            </div>
-          ))}
+        <div className="flex items-center gap-2 mb-3">
+          <button
+            type="button"
+            onClick={() => setMediaTab("media")}
+            className={`rounded-full px-3 py-1 transition ${
+              mediaTab === "media"
+                ? "bg-violet-500/30 text-white"
+                : "text-gray-400 hover:text-white"
+            }`}
+          >
+            Media ({mediaImages.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setMediaTab("files")}
+            className={`rounded-full px-3 py-1 transition ${
+              mediaTab === "files"
+                ? "bg-violet-500/30 text-white"
+                : "text-gray-400 hover:text-white"
+            }`}
+          >
+            Files ({mediaFiles.length})
+          </button>
         </div>
+
+        {mediaTab === "media" ? (
+          mediaImages.length === 0 ? (
+            <p className="text-gray-500 py-2">No media yet</p>
+          ) : (
+            <div className="max-h-[260px] overflow-y-scroll grid grid-cols-2 gap-3 opacity-90">
+              {mediaImages.map((file, index) => (
+                <div
+                  key={`${file.url}-${index}`}
+                  onClick={() => setLightboxImage(file.url)}
+                  className="cursor-zoom-in rounded overflow-hidden aspect-square"
+                >
+                  <img
+                    src={file.url}
+                    alt={file.name || ""}
+                    className="h-full w-full object-cover rounded-md hover:opacity-90 transition"
+                  />
+                </div>
+              ))}
+            </div>
+          )
+        ) : mediaFiles.length === 0 ? (
+          <p className="text-gray-500 py-2">No files yet</p>
+        ) : (
+          <div className="max-h-[260px] overflow-y-auto space-y-2">
+            {mediaFiles.map((file, index) => (
+              <a
+                key={`${file.url}-${index}`}
+                href={file.url}
+                target="_blank"
+                rel="noreferrer"
+                download={file.name}
+                className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-2.5 py-2 hover:bg-white/10 transition"
+                title="Open / download"
+              >
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-violet-500/20 text-[10px] font-semibold text-violet-200">
+                  {fileBadge(file.kind)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[12px] text-white">
+                    {file.name || attachmentLabel(file.kind)}
+                  </p>
+                  <p className="text-[10px] text-gray-400">
+                    {[attachmentLabel(file.kind), formatFileSize(file.size)]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                <span className="text-[10px] text-violet-300 flex-shrink-0">
+                  Open
+                </span>
+              </a>
+            ))}
+          </div>
+        )}
       </div>
 
       <button

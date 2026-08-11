@@ -23,13 +23,26 @@ const resolveSenderId = (senderId) => {
   return String(senderId);
 };
 
-const FileAttachmentCard = ({ attachment, pending }) => {
+const FileAttachmentCard = ({ attachment, pending, canRemove, onRemove }) => {
   if (!attachment) return null;
   const kind = attachment.kind || "file";
   const href = attachment.url;
 
   return (
-    <div className="px-3 py-2 min-w-[180px] max-w-[260px]">
+    <div className="relative px-3 py-2 min-w-[180px] max-w-[260px]">
+      {canRemove && (
+        <button
+          type="button"
+          title="Remove this file"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove?.(attachment);
+          }}
+          className="absolute right-2 top-2 z-10 rounded-full bg-black/50 px-1.5 text-[10px] text-white hover:bg-red-500/80"
+        >
+          ✕
+        </button>
+      )}
       <div className="flex items-start gap-2">
         <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-black/25 text-[11px] font-semibold uppercase text-white">
           {kind === "pdf"
@@ -42,7 +55,7 @@ const FileAttachmentCard = ({ attachment, pending }) => {
                   ? "ZIP"
                   : "FILE"}
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 pr-4">
           <p className="truncate text-sm text-white font-medium">
             {attachment.name || attachmentLabel(kind)}
           </p>
@@ -81,6 +94,7 @@ const ChatContainer = () => {
     sendMessage,
     editMessage,
     deleteMessage,
+    deleteAttachment,
     getMessages,
     getGroupMessages,
     isOtherUserTyping,
@@ -459,6 +473,18 @@ const ChatContainer = () => {
     }
   };
 
+  const handleDeleteAttachment = async (msg, attachment) => {
+    if (!attachment?.url || String(msg._id).startsWith("temp-")) return;
+    if (
+      !window.confirm(
+        `Remove "${attachment.name || "this file"}" from the message?`
+      )
+    ) {
+      return;
+    }
+    await deleteAttachment(msg._id, attachment.url);
+  };
+
   const scrollToMessage = (messageId) => {
     if (!messageId) return;
     const el = document.getElementById(`msg-${messageId}`);
@@ -718,15 +744,32 @@ const ChatContainer = () => {
                               }`}
                             >
                               {imageFiles.map((file, index) => (
-                                <img
+                                <div
                                   key={`${msg._id}-img-${index}`}
-                                  src={file.url}
-                                  alt={file.name || ""}
-                                  onClick={() =>
-                                    file.url && setLightboxImage(file.url)
-                                  }
-                                  className="rounded-lg max-h-48 w-full object-cover cursor-zoom-in hover:opacity-95 transition"
-                                />
+                                  className="relative"
+                                >
+                                  {isMine && !isPending && file.url && (
+                                    <button
+                                      type="button"
+                                      title="Remove this image"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteAttachment(msg, file);
+                                      }}
+                                      className="absolute right-1 top-1 z-10 rounded-full bg-black/60 px-1.5 text-[10px] text-white hover:bg-red-500/80"
+                                    >
+                                      ✕
+                                    </button>
+                                  )}
+                                  <img
+                                    src={file.url}
+                                    alt={file.name || ""}
+                                    onClick={() =>
+                                      file.url && setLightboxImage(file.url)
+                                    }
+                                    className="rounded-lg max-h-48 w-full object-cover cursor-zoom-in hover:opacity-95 transition"
+                                  />
+                                </div>
                               ))}
                             </div>
                           )}
@@ -736,6 +779,10 @@ const ChatContainer = () => {
                               key={`${msg._id}-file-${index}`}
                               attachment={file}
                               pending={isPending && !file.url}
+                              canRemove={isMine && !isPending && !!file.url}
+                              onRemove={() =>
+                                handleDeleteAttachment(msg, file)
+                              }
                             />
                           ))}
 

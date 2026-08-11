@@ -4,6 +4,7 @@ import {
   addGroupMembers,
   createGroup,
   deleteGroupMessage,
+  deleteGroupMessageAttachment,
   editGroupMessage,
   getGroupById,
   getGroupMessages,
@@ -30,6 +31,11 @@ groupRouter.post(
   sendGroupMessage
 );
 groupRouter.put("/messages/:messageId", protectRoute, editGroupMessage);
+groupRouter.delete(
+  "/messages/:messageId/attachments",
+  protectRoute,
+  deleteGroupMessageAttachment
+);
 groupRouter.delete("/messages/:messageId", protectRoute, deleteGroupMessage);
 
 export default groupRouter;

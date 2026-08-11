@@ -157,6 +157,71 @@ export const normalizeAttachmentsPayload = (attachments = []) => {
   };
 };
 
+export const listMessageAttachments = (message) => {
+  if (Array.isArray(message.attachments) && message.attachments.length) {
+    return message.attachments.map((item) =>
+      typeof item.toObject === "function" ? item.toObject() : { ...item }
+    );
+  }
+  if (message.attachment?.url || message.attachment?.name) {
+    const item =
+      typeof message.attachment.toObject === "function"
+        ? message.attachment.toObject()
+        : { ...message.attachment };
+    return [item];
+  }
+  if (message.image) {
+    return [
+      {
+        url: message.image,
+        name: "image.jpg",
+        size: 0,
+        mimeType: "image/jpeg",
+        kind: "image",
+      },
+    ];
+  }
+  return [];
+};
+
+/** Remove one attachment by URL. Returns { fullyDeleted: boolean }. */
+export const removeAttachmentFromMessage = (message, attachmentUrl) => {
+  if (!attachmentUrl) {
+    throw new Error("Attachment url is required");
+  }
+
+  const current = listMessageAttachments(message);
+  const next = current.filter((item) => String(item.url) !== String(attachmentUrl));
+
+  if (next.length === current.length) {
+    throw new Error("Attachment not found");
+  }
+
+  const normalized = normalizeAttachmentsPayload(next);
+  message.attachments = normalized.attachments;
+  message.image = normalized.imageUrl || "";
+
+  if (normalized.attachment) {
+    message.attachment = normalized.attachment;
+  } else {
+    message.set("attachment", undefined);
+  }
+
+  const hasText = !!message.text?.trim();
+  if (!normalized.attachments.length && !hasText) {
+    message.text = "";
+    message.image = "";
+    message.set("attachment", undefined);
+    message.attachments = [];
+    message.isDeleted = true;
+    message.isEdited = false;
+    return { fullyDeleted: true };
+  }
+
+  message.isEdited = true;
+  return { fullyDeleted: false };
+};
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, os.tmpdir()),
   filename: (_req, file, cb) => {

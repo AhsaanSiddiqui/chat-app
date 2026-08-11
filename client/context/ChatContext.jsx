@@ -682,6 +682,35 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
+  const deleteAttachment = async (messageId, attachmentUrl) => {
+    if (!messageId || !attachmentUrl) return false;
+
+    try {
+      const isGroup = !!selectedGroupRef.current?._id;
+      const { data } = await axios.delete(
+        isGroup
+          ? `/api/groups/messages/${messageId}/attachments`
+          : `/api/messages/${messageId}/attachments`,
+        { data: { url: attachmentUrl } }
+      );
+
+      if (data.success) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            String(msg._id) === String(data.message._id) ? data.message : msg
+          )
+        );
+        return true;
+      }
+
+      toast.error(data.message || "Failed to delete attachment");
+      return false;
+    } catch (error) {
+      toast.error(error.message);
+      return false;
+    }
+  };
+
   const notifyNewMessage = (newMessage, { isGroup = false } = {}) => {
     if (!isAppInBackground()) return;
 
@@ -1017,6 +1046,7 @@ export const ChatProvider = ({ children }) => {
     sendMessage,
     editMessage,
     deleteMessage,
+    deleteAttachment,
     setSelectedUser,
     setSelectedGroup,
     unseenMessages,
