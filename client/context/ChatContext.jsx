@@ -366,7 +366,7 @@ export const ChatProvider = ({ children }) => {
         if (String(selectedGroupRef.current?._id) === String(data.group._id)) {
           setSelectedGroupState(data.group);
         }
-        toast.success("Admin role updated");
+        toast.success("Member is now an admin");
         return true;
       }
       toast.error(data.message || "Failed to update admin");

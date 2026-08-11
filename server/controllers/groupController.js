@@ -20,10 +20,37 @@ const emitToGroupMembers = (memberIds, event, payload, exceptUserId = null) => {
   });
 };
 
-const ensureMember = (group, userId) =>
-  group.members.some((id) => String(id) === String(userId));
+const resolveId = (value) => {
+  if (!value) return "";
+  if (typeof value === "object") return String(value._id || value.id || "");
+  return String(value);
+};
 
-const ensureAdmin = (group, userId) => String(group.admin) === String(userId);
+const ensureMember = (group, userId) =>
+  group.members.some((id) => resolveId(id) === String(userId));
+
+const getAdminIds = (group) => {
+  const fromAdmins = (group.admins || []).map(resolveId).filter(Boolean);
+  if (fromAdmins.length) return [...new Set(fromAdmins)];
+  const single = resolveId(group.admin);
+  return single ? [single] : [];
+};
+
+const ensureAdmin = (group, userId) =>
+  getAdminIds(group).includes(String(userId));
+
+const syncAdmins = (group, adminIds = []) => {
+  const unique = [...new Set(adminIds.map(String).filter(Boolean))];
+  group.admins = unique;
+  const current = resolveId(group.admin);
+  group.admin = unique.includes(current) ? current : unique[0] || group.admin;
+};
+
+const populateGroup = (query) =>
+  query
+    .populate("members", "-password")
+    .populate("admin", "-password")
+    .populate("admins", "-password");
 
 const formatNameList = (names = []) => {
   if (!names.length) return "someone";
@@ -103,12 +130,11 @@ export const createGroup = async (req, res) => {
       description,
       groupPic: picUrl,
       admin: adminId,
+      admins: [adminId],
       members: uniqueMembers,
     });
 
-    const populated = await Group.findById(group._id)
-      .populate("members", "-password")
-      .populate("admin", "-password");
+    const populated = await populateGroup(Group.findById(group._id));
 
     const nameMap = await getUserNameMap(uniqueMembers);
     const actorName = nameMap[String(adminId)] || "Someone";
@@ -137,10 +163,9 @@ export const getMyGroups = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    const groups = await Group.find({ members: userId })
-      .populate("members", "-password")
-      .populate("admin", "-password")
-      .sort({ updatedAt: -1 });
+    const groups = await populateGroup(
+      Group.find({ members: userId })
+    ).sort({ updatedAt: -1 });
 
     const unseenMessages = {};
 
@@ -166,9 +191,7 @@ export const getMyGroups = async (req, res) => {
 
 export const getGroupById = async (req, res) => {
   try {
-    const group = await Group.findById(req.params.id)
-      .populate("members", "-password")
-      .populate("admin", "-password");
+    const group = await populateGroup(Group.findById(req.params.id));
 
     if (!group) {
       return res.json({ success: false, message: "Group not found" });
@@ -207,9 +230,7 @@ export const updateGroup = async (req, res) => {
 
     await group.save();
 
-    const populated = await Group.findById(group._id)
-      .populate("members", "-password")
-      .populate("admin", "-password");
+    const populated = await populateGroup(Group.findById(group._id));
 
     emitToGroupMembers(group.members, "groupUpdated", populated);
 
@@ -245,9 +266,7 @@ export const addGroupMembers = async (req, res) => {
     group.members = [...existing];
     await group.save();
 
-    const populated = await Group.findById(group._id)
-      .populate("members", "-password")
-      .populate("admin", "-password");
+    const populated = await populateGroup(Group.findById(group._id));
 
     const nameMap = await getUserNameMap([
       req.user._id,
@@ -293,15 +312,19 @@ export const removeGroupMember = async (req, res) => {
       });
     }
 
-    if (String(group.admin) === String(targetId)) {
-      return res.json({
-        success: false,
-        message: "Admin cannot be removed. Transfer admin first or delete group.",
-      });
-    }
-
     if (!ensureMember(group, targetId)) {
       return res.json({ success: false, message: "User is not a group member" });
+    }
+
+    const adminIds = getAdminIds(group);
+    const targetIsAdmin = adminIds.includes(String(targetId));
+
+    if (targetIsAdmin && adminIds.length === 1) {
+      return res.json({
+        success: false,
+        message:
+          "The only admin cannot leave or be removed. Make someone else admin first.",
+      });
     }
 
     const nameMap = await getUserNameMap([requesterId, targetId]);
@@ -309,13 +332,19 @@ export const removeGroupMember = async (req, res) => {
     const targetName = nameMap[String(targetId)] || "Someone";
 
     group.members = group.members.filter(
-      (id) => String(id) !== String(targetId)
+      (id) => resolveId(id) !== String(targetId)
     );
+
+    if (targetIsAdmin) {
+      syncAdmins(
+        group,
+        adminIds.filter((id) => id !== String(targetId))
+      );
+    }
+
     await group.save();
 
-    const populated = await Group.findById(group._id)
-      .populate("members", "-password")
-      .populate("admin", "-password");
+    const populated = await populateGroup(Group.findById(group._id));
 
     const remainingAndTarget = [
       ...group.members.map(String),
@@ -353,20 +382,13 @@ export const makeGroupAdmin = async (req, res) => {
     if (!ensureAdmin(group, req.user._id)) {
       return res.json({
         success: false,
-        message: "Only admin can transfer admin role",
+        message: "Only admin can promote members",
       });
     }
 
     const { userId } = req.body;
     if (!userId) {
       return res.json({ success: false, message: "Member is required" });
-    }
-
-    if (String(userId) === String(req.user._id)) {
-      return res.json({
-        success: false,
-        message: "You are already the admin",
-      });
     }
 
     if (!ensureMember(group, userId)) {
@@ -376,21 +398,27 @@ export const makeGroupAdmin = async (req, res) => {
       });
     }
 
+    const adminIds = getAdminIds(group);
+    if (adminIds.includes(String(userId))) {
+      return res.json({
+        success: false,
+        message: "User is already an admin",
+      });
+    }
+
     const nameMap = await getUserNameMap([req.user._id, userId]);
     const actorName = nameMap[String(req.user._id)] || "Someone";
     const newAdminName = nameMap[String(userId)] || "Someone";
 
-    group.admin = userId;
+    syncAdmins(group, [...adminIds, userId]);
     await group.save();
 
-    const populated = await Group.findById(group._id)
-      .populate("members", "-password")
-      .populate("admin", "-password");
+    const populated = await populateGroup(Group.findById(group._id));
 
     await createGroupSystemMessage({
       groupId: group._id,
       actorId: req.user._id,
-      text: `${actorName} made ${newAdminName} the admin`,
+      text: `${actorName} made ${newAdminName} an admin`,
       systemEvent: "admin_changed",
       notifyMemberIds: group.members,
     });

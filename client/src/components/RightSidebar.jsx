@@ -12,8 +12,16 @@ import {
 
 const resolveId = (value) => {
   if (!value) return "";
-  if (typeof value === "object") return String(value._id);
+  if (typeof value === "object") return String(value._id || value.id || "");
   return String(value);
+};
+
+const getAdminIdSet = (group) => {
+  if (!group) return new Set();
+  const fromAdmins = (group.admins || []).map(resolveId).filter(Boolean);
+  if (fromAdmins.length) return new Set(fromAdmins);
+  const single = resolveId(group.admin);
+  return new Set(single ? [single] : []);
 };
 
 const fileBadge = (kind) => {
@@ -50,9 +58,11 @@ const RightSidebar = () => {
   const [confirmLoading, setConfirmLoading] = useState(false);
 
   const active = selectedGroup || selectedUser;
-  const isAdmin =
-    selectedGroup &&
-    resolveId(selectedGroup.admin) === String(authUser?._id);
+  const adminIds = useMemo(
+    () => getAdminIdSet(selectedGroup),
+    [selectedGroup]
+  );
+  const isAdmin = adminIds.has(String(authUser?._id));
 
   const { mediaImages, mediaFiles } = useMemo(() => {
     const images = [];
@@ -135,8 +145,8 @@ const RightSidebar = () => {
   const handleMakeAdmin = (userId, memberName) => {
     if (!selectedGroup) return;
     setConfirmDialog({
-      title: "Transfer admin",
-      message: `Make ${memberName || "this member"} the group admin? You will no longer be admin.`,
+      title: "Make admin",
+      message: `Make ${memberName || "this member"} a group admin?`,
       confirmLabel: "Make admin",
       danger: false,
       action: () => makeGroupAdmin(selectedGroup._id, userId),
@@ -224,7 +234,7 @@ const RightSidebar = () => {
             <div className="space-y-1 max-h-[220px] overflow-y-auto">
               {(selectedGroup.members || []).map((member) => {
                 const id = resolveId(member);
-                const isMemberAdmin = resolveId(selectedGroup.admin) === id;
+                const isMemberAdmin = adminIds.has(id);
                 const isSelf = id === String(authUser._id);
 
                 return (
@@ -258,7 +268,7 @@ const RightSidebar = () => {
                           onClick={() =>
                             handleMakeAdmin(id, member.fullName)
                           }
-                          className="text-[10px] text-violet-300 hover:text-violet-200"
+                          className="text-[11px] font-medium text-violet-300 hover:text-violet-200"
                         >
                           Make admin
                         </button>
@@ -267,7 +277,7 @@ const RightSidebar = () => {
                         <button
                           type="button"
                           onClick={() => handleRemoveOrLeave(id)}
-                          className="text-[10px] text-red-300 hover:text-red-200"
+                          className="text-[11px] text-red-300 hover:text-red-200"
                         >
                           {isSelf ? "Leave" : "Remove"}
                         </button>

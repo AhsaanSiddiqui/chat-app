@@ -10,6 +10,13 @@ const groupSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    // Multiple group admins (WhatsApp-style). Falls back to `admin` if empty.
+    admins: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
     members: [
       {
         type: mongoose.Schema.Types.ObjectId,
