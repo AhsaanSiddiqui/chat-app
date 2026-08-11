@@ -118,6 +118,7 @@ const ChatContainer = () => {
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [menuOpenId, setMenuOpenId] = useState(null);
   const [reactMenuId, setReactMenuId] = useState(null);
+  const [reactAnchorEl, setReactAnchorEl] = useState(null);
   const [showFullEmojiPicker, setShowFullEmojiPicker] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
 
@@ -149,6 +150,7 @@ const ChatContainer = () => {
     setInput("");
     setMenuOpenId(null);
     setReactMenuId(null);
+    setReactAnchorEl(null);
     setShowFullEmojiPicker(false);
     stopTyping();
     setTimeout(() => inputRef.current?.focus(), 0);
@@ -171,6 +173,7 @@ const ChatContainer = () => {
     const closeMenu = () => {
       setMenuOpenId(null);
       setReactMenuId(null);
+      setReactAnchorEl(null);
       setShowFullEmojiPicker(false);
     };
     window.addEventListener("click", closeMenu);
@@ -498,20 +501,23 @@ const ChatContainer = () => {
 
   const handleReact = async (msg, emoji) => {
     setReactMenuId(null);
+    setReactAnchorEl(null);
     setShowFullEmojiPicker(false);
     setMenuOpenId(null);
     if (msg.isDeleted || String(msg._id).startsWith("temp-")) return;
     await reactToMessage(msg._id, emoji);
   };
 
-  const openReactionPicker = (msgId) => {
+  const openReactionPicker = (msgId, anchorEl) => {
     setMenuOpenId(null);
     if (reactMenuId === msgId) {
       setReactMenuId(null);
+      setReactAnchorEl(null);
       setShowFullEmojiPicker(false);
       return;
     }
     setReactMenuId(msgId);
+    setReactAnchorEl(anchorEl || null);
     setShowFullEmojiPicker(false);
   };
 
@@ -590,7 +596,7 @@ const ChatContainer = () => {
         <img src={assets.help_icon} alt="" className="w-5 hidden md:block" />
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto p-4 px-8 space-y-3">
         {messagesLoading && messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-sm text-gray-400">Loading messages...</p>
@@ -674,8 +680,8 @@ const ChatContainer = () => {
 
                       {!msg.isDeleted && !isPending && (
                         <div
-                          className={`absolute -top-1 flex items-center gap-0.5 transition-opacity ${
-                            isMine ? "-left-[4.25rem]" : "-right-[4.25rem]"
+                          className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1 transition-opacity ${
+                            isMine ? "-left-16" : "-right-16"
                           } ${
                             reactMenuId === msg._id || menuOpenId === msg._id
                               ? "opacity-100"
@@ -685,14 +691,14 @@ const ChatContainer = () => {
                           <button
                             type="button"
                             title="React"
-                            className={`flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-[#1b1b22] text-sm text-gray-200 shadow hover:bg-white/10 ${
+                            className={`flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-[#1b1b22] text-base text-gray-200 shadow hover:bg-white/10 ${
                               reactMenuId === msg._id
                                 ? "opacity-100 ring-1 ring-emerald-400/50"
                                 : ""
                             }`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              openReactionPicker(msg._id);
+                              openReactionPicker(msg._id, e.currentTarget);
                             }}
                           >
                             🙂
@@ -700,10 +706,11 @@ const ChatContainer = () => {
 
                           <button
                             type="button"
-                            className="flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-[#1b1b22] text-sm text-gray-200 shadow hover:bg-white/10"
+                            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-[#1b1b22] text-sm text-gray-200 shadow hover:bg-white/10"
                             onClick={(e) => {
                               e.stopPropagation();
                               setReactMenuId(null);
+                              setReactAnchorEl(null);
                               setShowFullEmojiPicker(false);
                               setMenuOpenId(
                                 menuOpenId === msg._id ? null : msg._id
@@ -715,7 +722,7 @@ const ChatContainer = () => {
 
                           {menuOpenId === msg._id && (
                             <div
-                              className={`absolute top-8 z-20 min-w-[110px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden ${
+                              className={`absolute top-9 z-20 min-w-[110px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden ${
                                 isMine ? "left-0" : "right-0"
                               }`}
                               onClick={(e) => e.stopPropagation()}
@@ -747,22 +754,24 @@ const ChatContainer = () => {
                               )}
                             </div>
                           )}
-
-                          {reactMenuId === msg._id && (
-                            <EmojiReactionPicker
-                              align={isMine ? "left" : "right"}
-                              showFullPicker={showFullEmojiPicker}
-                              onToggleFullPicker={() =>
-                                setShowFullEmojiPicker((prev) => !prev)
-                              }
-                              onSelect={(emoji) => handleReact(msg, emoji)}
-                              onClose={() => {
-                                setReactMenuId(null);
-                                setShowFullEmojiPicker(false);
-                              }}
-                            />
-                          )}
                         </div>
+                      )}
+
+                      {reactMenuId === msg._id && reactAnchorEl && (
+                        <EmojiReactionPicker
+                          anchorEl={reactAnchorEl}
+                          align={isMine ? "right" : "left"}
+                          showFullPicker={showFullEmojiPicker}
+                          onToggleFullPicker={() =>
+                            setShowFullEmojiPicker((prev) => !prev)
+                          }
+                          onSelect={(emoji) => handleReact(msg, emoji)}
+                          onClose={() => {
+                            setReactMenuId(null);
+                            setReactAnchorEl(null);
+                            setShowFullEmojiPicker(false);
+                          }}
+                        />
                       )}
 
                       {msg.isDeleted ? (
@@ -903,7 +912,10 @@ const ChatContainer = () => {
                               title="Add reaction"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                openReactionPicker(msg._id);
+                                const btn = e.currentTarget
+                                  .closest(".group")
+                                  ?.querySelector('[title="React"]');
+                                openReactionPicker(msg._id, btn || e.currentTarget);
                               }}
                               className="rounded-full border border-white/15 bg-black/30 px-2 py-0.5 text-xs text-gray-300 hover:bg-white/10"
                             >

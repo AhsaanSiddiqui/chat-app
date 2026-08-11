@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   EMOJI_CATEGORIES,
   QUICK_REACTIONS,
@@ -7,6 +8,7 @@ import {
 } from "../lib/reactions";
 
 const EmojiReactionPicker = ({
+  anchorEl,
   align = "left",
   showFullPicker = false,
   onToggleFullPicker,
@@ -16,6 +18,8 @@ const EmojiReactionPicker = ({
   const [activeCategory, setActiveCategory] = useState("recent");
   const [search, setSearch] = useState("");
   const [recent, setRecent] = useState(() => getRecentReactions());
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const panelRef = useRef(null);
 
   useEffect(() => {
     setRecent(getRecentReactions());
@@ -48,10 +52,12 @@ const EmojiReactionPicker = ({
           .slice(0, 160);
       }
 
-      return categories
-        .find((category) => category.id === "smileys")
-        ?.emojis.filter((emoji) => emoji.includes(query))
-        .slice(0, 80) || [];
+      return (
+        categories
+          .find((category) => category.id === "smileys")
+          ?.emojis.filter((emoji) => emoji.includes(query))
+          .slice(0, 80) || []
+      );
     }
 
     const category =
@@ -59,17 +65,63 @@ const EmojiReactionPicker = ({
     return category?.emojis || [];
   }, [activeCategory, categories, search]);
 
+  useLayoutEffect(() => {
+    const updatePosition = () => {
+      const anchor = anchorEl;
+      const panel = panelRef.current;
+      if (!anchor) return;
+
+      const rect = anchor.getBoundingClientRect();
+      const panelWidth = panel?.offsetWidth || (showFullPicker ? 300 : 280);
+      const panelHeight = panel?.offsetHeight || (showFullPicker ? 360 : 56);
+      const gap = 10;
+      const padding = 12;
+
+      let left =
+        align === "right"
+          ? rect.right - panelWidth
+          : rect.left + rect.width / 2 - panelWidth / 2;
+
+      left = Math.max(
+        padding,
+        Math.min(left, window.innerWidth - panelWidth - padding)
+      );
+
+      let top = rect.top - panelHeight - gap;
+      if (top < padding) {
+        top = Math.min(
+          rect.bottom + gap,
+          window.innerHeight - panelHeight - padding
+        );
+      }
+
+      setCoords({ top, left });
+    };
+
+    updatePosition();
+    // Re-measure after paint when panel size is known
+    const frame = requestAnimationFrame(updatePosition);
+
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [anchorEl, align, showFullPicker, activeCategory, search]);
+
   const handleSelect = (emoji) => {
     pushRecentReaction(emoji);
     setRecent(getRecentReactions());
     onSelect?.(emoji);
   };
 
-  return (
+  const content = (
     <div
-      className={`absolute z-30 ${
-        align === "right" ? "right-0" : "left-0"
-      } bottom-full mb-2`}
+      ref={panelRef}
+      className="fixed z-[80]"
+      style={{ top: coords.top, left: coords.left }}
       onClick={(e) => e.stopPropagation()}
     >
       {showFullPicker && (
@@ -135,7 +187,7 @@ const EmojiReactionPicker = ({
         </div>
       )}
 
-      <div className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white px-2 py-1.5 shadow-xl">
+      <div className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1.5 shadow-xl">
         {QUICK_REACTIONS.map((emoji) => (
           <button
             key={emoji}
@@ -175,6 +227,8 @@ const EmojiReactionPicker = ({
       </div>
     </div>
   );
+
+  return createPortal(content, document.body);
 };
 
 export default EmojiReactionPicker;
