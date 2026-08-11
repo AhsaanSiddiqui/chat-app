@@ -25,6 +25,53 @@ const ensureMember = (group, userId) =>
 
 const ensureAdmin = (group, userId) => String(group.admin) === String(userId);
 
+const formatNameList = (names = []) => {
+  if (!names.length) return "someone";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+};
+
+const createGroupSystemMessage = async ({
+  groupId,
+  actorId,
+  text,
+  systemEvent,
+  notifyMemberIds = [],
+}) => {
+  const message = await GroupMessage.create({
+    groupId,
+    senderId: actorId,
+    text,
+    messageType: "system",
+    systemEvent,
+    seenBy: [actorId],
+  });
+
+  const populated = await GroupMessage.findById(message._id).populate(
+    "senderId",
+    "-password"
+  );
+
+  await Group.findByIdAndUpdate(groupId, { updatedAt: new Date() });
+
+  const recipients = [
+    ...new Set((notifyMemberIds || []).map(String).filter(Boolean)),
+  ];
+  emitToGroupMembers(recipients, "newGroupMessage", populated);
+
+  return populated;
+};
+
+const getUserNameMap = async (ids = []) => {
+  const users = await User.find({ _id: { $in: ids } }).select("fullName");
+  const map = {};
+  users.forEach((user) => {
+    map[String(user._id)] = user.fullName || "Someone";
+  });
+  return map;
+};
+
 export const createGroup = async (req, res) => {
   try {
     const { name, description = "", memberIds = [], groupPic } = req.body;
@@ -63,6 +110,20 @@ export const createGroup = async (req, res) => {
       .populate("members", "-password")
       .populate("admin", "-password");
 
+    const nameMap = await getUserNameMap(uniqueMembers);
+    const actorName = nameMap[String(adminId)] || "Someone";
+    const otherNames = uniqueMembers
+      .filter((id) => String(id) !== String(adminId))
+      .map((id) => nameMap[String(id)] || "Someone");
+
+    await createGroupSystemMessage({
+      groupId: group._id,
+      actorId: adminId,
+      text: `${actorName} created group "${group.name}" and added ${formatNameList(otherNames)}`,
+      systemEvent: "group_created",
+      notifyMemberIds: uniqueMembers,
+    });
+
     emitToGroupMembers(uniqueMembers, "groupCreated", populated);
 
     res.json({ success: true, group: populated });
@@ -90,6 +151,7 @@ export const getMyGroups = async (req, res) => {
           senderId: { $ne: userId },
           seenBy: { $nin: [userId] },
           isDeleted: false,
+          messageType: { $ne: "system" },
         });
         if (count > 0) unseenMessages[group._id] = count;
       })
@@ -171,13 +233,38 @@ export const addGroupMembers = async (req, res) => {
 
     const { memberIds = [] } = req.body;
     const existing = new Set(group.members.map(String));
-    memberIds.forEach((id) => existing.add(String(id)));
+    const newlyAdded = memberIds
+      .map(String)
+      .filter((id) => id && !existing.has(id));
+
+    if (!newlyAdded.length) {
+      return res.json({ success: false, message: "No new members to add" });
+    }
+
+    newlyAdded.forEach((id) => existing.add(id));
     group.members = [...existing];
     await group.save();
 
     const populated = await Group.findById(group._id)
       .populate("members", "-password")
       .populate("admin", "-password");
+
+    const nameMap = await getUserNameMap([
+      req.user._id,
+      ...newlyAdded,
+    ]);
+    const actorName = nameMap[String(req.user._id)] || "Someone";
+    const addedNames = newlyAdded.map(
+      (id) => nameMap[String(id)] || "Someone"
+    );
+
+    await createGroupSystemMessage({
+      groupId: group._id,
+      actorId: req.user._id,
+      text: `${actorName} added ${formatNameList(addedNames)}`,
+      systemEvent: "member_added",
+      notifyMemberIds: group.members,
+    });
 
     emitToGroupMembers(group.members, "groupUpdated", populated);
 
@@ -213,6 +300,14 @@ export const removeGroupMember = async (req, res) => {
       });
     }
 
+    if (!ensureMember(group, targetId)) {
+      return res.json({ success: false, message: "User is not a group member" });
+    }
+
+    const nameMap = await getUserNameMap([requesterId, targetId]);
+    const actorName = nameMap[String(requesterId)] || "Someone";
+    const targetName = nameMap[String(targetId)] || "Someone";
+
     group.members = group.members.filter(
       (id) => String(id) !== String(targetId)
     );
@@ -222,11 +317,85 @@ export const removeGroupMember = async (req, res) => {
       .populate("members", "-password")
       .populate("admin", "-password");
 
-    emitToGroupMembers(
-      [...group.members.map(String), String(targetId)],
-      "groupUpdated",
-      populated
-    );
+    const remainingAndTarget = [
+      ...group.members.map(String),
+      String(targetId),
+    ];
+
+    const systemText = isSelf
+      ? `${targetName} left`
+      : `${actorName} removed ${targetName}`;
+
+    await createGroupSystemMessage({
+      groupId: group._id,
+      actorId: requesterId,
+      text: systemText,
+      systemEvent: isSelf ? "member_left" : "member_removed",
+      notifyMemberIds: remainingAndTarget,
+    });
+
+    emitToGroupMembers(remainingAndTarget, "groupUpdated", populated);
+
+    res.json({ success: true, group: populated });
+  } catch (error) {
+    console.log(error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+export const makeGroupAdmin = async (req, res) => {
+  try {
+    const group = await Group.findById(req.params.id);
+    if (!group) {
+      return res.json({ success: false, message: "Group not found" });
+    }
+
+    if (!ensureAdmin(group, req.user._id)) {
+      return res.json({
+        success: false,
+        message: "Only admin can transfer admin role",
+      });
+    }
+
+    const { userId } = req.body;
+    if (!userId) {
+      return res.json({ success: false, message: "Member is required" });
+    }
+
+    if (String(userId) === String(req.user._id)) {
+      return res.json({
+        success: false,
+        message: "You are already the admin",
+      });
+    }
+
+    if (!ensureMember(group, userId)) {
+      return res.json({
+        success: false,
+        message: "User must be a group member",
+      });
+    }
+
+    const nameMap = await getUserNameMap([req.user._id, userId]);
+    const actorName = nameMap[String(req.user._id)] || "Someone";
+    const newAdminName = nameMap[String(userId)] || "Someone";
+
+    group.admin = userId;
+    await group.save();
+
+    const populated = await Group.findById(group._id)
+      .populate("members", "-password")
+      .populate("admin", "-password");
+
+    await createGroupSystemMessage({
+      groupId: group._id,
+      actorId: req.user._id,
+      text: `${actorName} made ${newAdminName} the admin`,
+      systemEvent: "admin_changed",
+      notifyMemberIds: group.members,
+    });
+
+    emitToGroupMembers(group.members, "groupUpdated", populated);
 
     res.json({ success: true, group: populated });
   } catch (error) {
@@ -253,6 +422,7 @@ export const getGroupMessages = async (req, res) => {
       groupId,
       senderId: { $ne: userId },
       seenBy: { $nin: [userId] },
+      messageType: { $ne: "system" },
     }).select("_id");
 
     if (unseen.length) {
@@ -389,6 +559,10 @@ export const editGroupMessage = async (req, res) => {
       return res.json({ success: false, message: "Not allowed" });
     }
 
+    if (message.messageType === "system") {
+      return res.json({ success: false, message: "Cannot edit this message" });
+    }
+
     if (message.isDeleted || (message.image && !message.text)) {
       return res.json({ success: false, message: "Cannot edit this message" });
     }
@@ -432,6 +606,10 @@ export const deleteGroupMessage = async (req, res) => {
 
     if (String(message.senderId) !== String(req.user._id)) {
       return res.json({ success: false, message: "Not allowed" });
+    }
+
+    if (message.messageType === "system") {
+      return res.json({ success: false, message: "Cannot delete system messages" });
     }
 
     message.text = "";
@@ -544,6 +722,13 @@ export const reactToGroupMessage = async (req, res) => {
       return res.json({
         success: false,
         message: "Cannot react to deleted message",
+      });
+    }
+
+    if (message.messageType === "system") {
+      return res.json({
+        success: false,
+        message: "Cannot react to system messages",
       });
     }
 

@@ -352,6 +352,31 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
+  const makeGroupAdmin = async (groupId, userId) => {
+    try {
+      const { data } = await axios.post(`/api/groups/${groupId}/admin`, {
+        userId,
+      });
+      if (data.success) {
+        setGroups((prev) =>
+          prev.map((g) =>
+            String(g._id) === String(data.group._id) ? data.group : g
+          )
+        );
+        if (String(selectedGroupRef.current?._id) === String(data.group._id)) {
+          setSelectedGroupState(data.group);
+        }
+        toast.success("Admin role updated");
+        return true;
+      }
+      toast.error(data.message || "Failed to update admin");
+      return false;
+    } catch (error) {
+      toast.error(error.message);
+      return false;
+    }
+  };
+
   const getMessages = async (userId) => {
     if (!userId) return;
 
@@ -868,14 +893,16 @@ export const ChatProvider = ({ children }) => {
         ];
       }
 
-      if (!isGroupMessageOpen(newMessage)) {
+      if (!isGroupMessageOpen(newMessage) && newMessage.messageType !== "system") {
         setUnseenGroupMessages((prev) => ({
           ...prev,
           [groupId]: prev[groupId] ? prev[groupId] + 1 : 1,
         }));
       }
 
-      notifyNewMessage(newMessage, { isGroup: true });
+      if (newMessage.messageType !== "system") {
+        notifyNewMessage(newMessage, { isGroup: true });
+      }
     };
 
     const onMessageUpdated = (updatedMessage) => {
@@ -1074,6 +1101,7 @@ export const ChatProvider = ({ children }) => {
     createGroup,
     addGroupMembers,
     removeGroupMember,
+    makeGroupAdmin,
     sendMessage,
     editMessage,
     deleteMessage,

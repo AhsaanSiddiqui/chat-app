@@ -9,6 +9,7 @@ import {
   getGroupById,
   getGroupMessages,
   getMyGroups,
+  makeGroupAdmin,
   reactToGroupMessage,
   removeGroupMember,
   sendGroupMessage,
@@ -23,6 +24,7 @@ groupRouter.get("/my", protectRoute, getMyGroups);
 groupRouter.get("/:id", protectRoute, getGroupById);
 groupRouter.put("/:id", protectRoute, updateGroup);
 groupRouter.post("/:id/members", protectRoute, addGroupMembers);
+groupRouter.post("/:id/admin", protectRoute, makeGroupAdmin);
 groupRouter.delete("/:id/members/:userId", protectRoute, removeGroupMember);
 groupRouter.get("/:id/messages", protectRoute, getGroupMessages);
 groupRouter.post(

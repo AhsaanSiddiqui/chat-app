@@ -34,6 +34,21 @@ const groupMessageSchema = new mongoose.Schema(
     attachment: attachmentSchema,
     attachments: [attachmentSchema],
     reactions: { type: [reactionSchema], default: [] },
+    messageType: {
+      type: String,
+      enum: ["text", "system"],
+      default: "text",
+    },
+    systemEvent: {
+      type: String,
+      enum: [
+        "group_created",
+        "member_added",
+        "member_removed",
+        "member_left",
+        "admin_changed",
+      ],
+    },
     seenBy: [
       {
         type: mongoose.Schema.Types.ObjectId,

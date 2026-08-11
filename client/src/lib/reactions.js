@@ -260,6 +260,26 @@ export function summarizeReactions(reactions = [], currentUserId = "") {
   return Array.from(map.values());
 }
 
+export function formatSystemMessageText(text = "", authUser) {
+  if (!text || !authUser?.fullName) return text;
+
+  const name = authUser.fullName.trim();
+  if (!name) return text;
+
+  const escapeRegExp = (value) =>
+    value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const nameRe = escapeRegExp(name);
+
+  let result = text;
+  if (new RegExp(`^${nameRe}\\b`).test(result)) {
+    result = result.replace(new RegExp(`^${nameRe}`), "You");
+  }
+  result = result.replace(new RegExp(`\\b${nameRe}\\b`, "g"), "you");
+  result = result.replace(/^you\b/, "You");
+  return result;
+}
+
+
 const RECENT_KEY = "quickchat_recent_reactions";
 
 export function getRecentReactions(limit = 16) {

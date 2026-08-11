@@ -38,6 +38,7 @@ const RightSidebar = () => {
     users,
     addGroupMembers,
     removeGroupMember,
+    makeGroupAdmin,
   } = useContext(ChatContext);
   const { logout, onlineUsers, authUser } = useContext(AuthContext);
   const [lightboxImage, setLightboxImage] = useState(null);
@@ -106,6 +107,15 @@ const RightSidebar = () => {
     );
     if (!ok) return;
     await removeGroupMember(selectedGroup._id, userId);
+  };
+
+  const handleMakeAdmin = async (userId, memberName) => {
+    if (!selectedGroup) return;
+    const ok = window.confirm(
+      `Make ${memberName || "this member"} the group admin? You will no longer be admin.`
+    );
+    if (!ok) return;
+    await makeGroupAdmin(selectedGroup._id, userId);
   };
 
   if (!active) return null;
@@ -216,15 +226,28 @@ const RightSidebar = () => {
                         <p className="text-[10px] text-violet-300">Admin</p>
                       )}
                     </div>
-                    {(isSelf || (isAdmin && !isMemberAdmin)) && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveOrLeave(id)}
-                        className="text-[10px] text-red-300 hover:text-red-200"
-                      >
-                        {isSelf ? "Leave" : "Remove"}
-                      </button>
-                    )}
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      {isAdmin && !isMemberAdmin && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleMakeAdmin(id, member.fullName)
+                          }
+                          className="text-[10px] text-violet-300 hover:text-violet-200"
+                        >
+                          Make admin
+                        </button>
+                      )}
+                      {(isSelf || (isAdmin && !isMemberAdmin)) && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveOrLeave(id)}
+                          className="text-[10px] text-red-300 hover:text-red-200"
+                        >
+                          {isSelf ? "Leave" : "Remove"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}

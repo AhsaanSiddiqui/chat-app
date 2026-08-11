@@ -11,6 +11,7 @@ import {
   isAllowedAttachmentFile,
   MAX_ATTACHMENT_SIZE,
   MAX_ATTACHMENTS_PER_MESSAGE,
+  formatSystemMessageText,
   summarizeReactions,
 } from "../lib/utils";
 import { AuthContext } from "../../context/AuthContext";
@@ -646,10 +647,25 @@ const ChatContainer = () => {
                   !msg.attachment?.url &&
                   !msg.attachments?.length &&
                   !msg.isDeleted;
+                const isSystemMessage = msg.messageType === "system";
                 const reactionSummary = summarizeReactions(
                   msg.reactions || [],
                   authUser._id
                 );
+
+                if (isSystemMessage) {
+                  return (
+                    <div
+                      key={msg._id}
+                      id={`msg-${msg._id}`}
+                      className="flex justify-center my-1"
+                    >
+                      <div className="max-w-[85%] rounded-full bg-white/10 px-3 py-1 text-center text-[11px] text-gray-300 border border-white/5">
+                        {formatSystemMessageText(msg.text, authUser)}
+                      </div>
+                    </div>
+                  );
+                }
 
                 return (
                   <div
