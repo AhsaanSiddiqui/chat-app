@@ -20,6 +20,7 @@ import toast from "react-hot-toast";
 import ImageLightbox from "./ImageLightbox";
 import EmojiReactionPicker from "./EmojiReactionPicker";
 import ConfirmModal from "./ConfirmModal";
+import LinkifiedText from "./LinkifiedText";
 
 const resolveSenderId = (senderId) => {
   if (!senderId) return "";
@@ -909,7 +910,7 @@ const ChatContainer = () => {
 
                           {msg.text ? (
                             <div className="px-3 py-2 break-words text-white">
-                              {msg.text}
+                              <LinkifiedText text={msg.text} />
                             </div>
                           ) : null}
                         </div>
