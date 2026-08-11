@@ -89,11 +89,72 @@ export const AuthProvider = ({ children }) => {
         connectSocket(data.userData);
 
         toast.success(data.message);
-      } else {
-        toast.error(data.message);
+        return { success: true, data };
       }
+      toast.error(data.message);
+      return { success: false, data };
     } catch (error) {
       toast.error(error.response?.data?.message || error.message);
+      return { success: false };
+    }
+  };
+
+  const requestSignup = async (credentials) => {
+    try {
+      const { data } = await axios.post("/api/auth/signup/request", credentials);
+      if (data.success) {
+        toast.success(data.message);
+        if (data.devCode) {
+          toast(`Dev code: ${data.devCode}`, { icon: "🔑", duration: 8000 });
+        }
+        return { success: true, data };
+      }
+      toast.error(data.message || "Could not start signup");
+      return { success: false, data };
+    } catch (error) {
+      toast.error(error.response?.data?.message || error.message);
+      return { success: false };
+    }
+  };
+
+  const verifySignup = async ({ email, code }) => {
+    try {
+      const { data } = await axios.post("/api/auth/signup/verify", {
+        email,
+        code,
+      });
+      if (data.success) {
+        setAuthUser(data.userData);
+        setToken(data.token);
+        localStorage.setItem("token", data.token);
+        axios.defaults.headers.common["token"] = data.token;
+        connectSocket(data.userData);
+        toast.success(data.message);
+        return { success: true, data };
+      }
+      toast.error(data.message || "Verification failed");
+      return { success: false, data };
+    } catch (error) {
+      toast.error(error.response?.data?.message || error.message);
+      return { success: false };
+    }
+  };
+
+  const resendSignupOtp = async (email) => {
+    try {
+      const { data } = await axios.post("/api/auth/signup/resend", { email });
+      if (data.success) {
+        toast.success(data.message);
+        if (data.devCode) {
+          toast(`Dev code: ${data.devCode}`, { icon: "🔑", duration: 8000 });
+        }
+        return { success: true, data };
+      }
+      toast.error(data.message || "Could not resend code");
+      return { success: false, data };
+    } catch (error) {
+      toast.error(error.response?.data?.message || error.message);
+      return { success: false };
     }
   };
 
@@ -210,6 +271,9 @@ export const AuthProvider = ({ children }) => {
     onlineUsers,
     socket,
     login,
+    requestSignup,
+    verifySignup,
+    resendSignupOtp,
     logout,
     updateProfile,
     checkAuth,
