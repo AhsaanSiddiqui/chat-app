@@ -103,9 +103,16 @@ export const AuthProvider = ({ children }) => {
     try {
       const { data } = await axios.post("/api/auth/signup/request", credentials);
       if (data.success) {
-        toast.success(data.message);
+        if (data.emailSent) {
+          toast.success(data.message);
+        } else {
+          toast.error(data.message || "Email was not sent (SMTP not configured)");
+        }
         if (data.devCode) {
-          toast(`Dev code: ${data.devCode}`, { icon: "🔑", duration: 8000 });
+          toast(`Use this code: ${data.devCode}`, {
+            icon: "🔑",
+            duration: 12000,
+          });
         }
         return { success: true, data };
       }

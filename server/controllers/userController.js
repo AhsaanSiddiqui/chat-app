@@ -119,13 +119,14 @@ export const requestSignup = async (req, res) => {
       success: true,
       message: mail.sent
         ? "Verification code sent to your email"
-        : "Verification code generated. Check server logs if email is not configured.",
+        : mail.error ||
+          "SMTP not set. Code shown below for testing — configure SMTP to send real Gmail.",
       email: normalizedEmail,
       accountType: type,
       emailSent: !!mail.sent,
     };
 
-    if (shouldReturnDevCode()) {
+    if (shouldReturnDevCode() || !mail.sent) {
       payload.devCode = code;
     }
 
@@ -241,11 +242,12 @@ export const resendSignupOtp = async (req, res) => {
       success: true,
       message: mail.sent
         ? "New verification code sent"
-        : "New code generated. Check server logs if email is not configured.",
+        : mail.error ||
+          "SMTP not set. Code shown below for testing — configure SMTP to send real Gmail.",
       emailSent: !!mail.sent,
     };
 
-    if (shouldReturnDevCode()) {
+    if (shouldReturnDevCode() || !mail.sent) {
       payload.devCode = code;
     }
 

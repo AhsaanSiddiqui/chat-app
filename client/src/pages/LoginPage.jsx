@@ -11,6 +11,7 @@ const LoginPage = () => {
   const [bio, setBio] = useState("");
   const [officeInviteCode, setOfficeInviteCode] = useState("");
   const [otpCode, setOtpCode] = useState("");
+  const [devCodeHint, setDevCodeHint] = useState("");
   const [step, setStep] = useState("details"); // details | bio | otp
   const [submitting, setSubmitting] = useState(false);
 
@@ -20,6 +21,7 @@ const LoginPage = () => {
   const resetSignupFlow = () => {
     setStep("details");
     setOtpCode("");
+    setDevCodeHint("");
     setOfficeInviteCode("");
   };
 
@@ -55,6 +57,7 @@ const LoginPage = () => {
       });
       setSubmitting(false);
       if (result.success) {
+        setDevCodeHint(result.data?.devCode || "");
         setStep("otp");
       }
       return;
@@ -70,7 +73,10 @@ const LoginPage = () => {
   const handleResend = async () => {
     if (submitting || !email) return;
     setSubmitting(true);
-    await resendSignupOtp(email);
+    const result = await resendSignupOtp(email);
+    if (result.success && result.data?.devCode) {
+      setDevCodeHint(result.data.devCode);
+    }
     setSubmitting(false);
   };
 
@@ -228,6 +234,12 @@ const LoginPage = () => {
             >
               Resend code
             </button>
+            {devCodeHint && (
+              <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-md p-2">
+                SMTP not sending yet — temporary code:{" "}
+                <span className="font-semibold tracking-widest">{devCodeHint}</span>
+              </p>
+            )}
           </>
         )}
 
