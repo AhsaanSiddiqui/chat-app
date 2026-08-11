@@ -128,6 +128,44 @@ export function isAllowedAttachmentFile(file) {
   );
 }
 
+export const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+export function trimUrlTrailingPunctuation(url = "") {
+  let cleaned = url;
+  let trailing = "";
+  while (/[.,!?;:)"'\]]$/.test(cleaned)) {
+    trailing = cleaned.slice(-1) + trailing;
+    cleaned = cleaned.slice(0, -1);
+  }
+  return { cleaned, trailing };
+}
+
+export function toHref(url = "") {
+  if (!url) return "";
+  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
+}
+
+/** Unique http(s)/www links found in plain text, in order of appearance. */
+export function extractUrlsFromText(text = "") {
+  if (!text) return [];
+  const found = [];
+  const regex = new RegExp(URL_REGEX.source, URL_REGEX.flags);
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const { cleaned } = trimUrlTrailingPunctuation(match[0]);
+    if (cleaned) found.push(cleaned);
+  }
+  return found;
+}
+
+export function linkDisplayHost(url = "") {
+  try {
+    return new URL(toHref(url)).hostname.replace(/^www\./i, "");
+  } catch {
+    return url;
+  }
+}
+
 export {
   MESSAGE_REACTIONS,
   QUICK_REACTIONS,

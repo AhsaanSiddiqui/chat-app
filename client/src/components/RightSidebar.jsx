@@ -6,8 +6,11 @@ import ImageLightbox from "./ImageLightbox";
 import ConfirmModal from "./ConfirmModal";
 import {
   attachmentLabel,
+  extractUrlsFromText,
   formatFileSize,
   getMessageAttachments,
+  linkDisplayHost,
+  toHref,
 } from "../lib/utils";
 
 const resolveId = (value) => {
@@ -53,7 +56,7 @@ const RightSidebar = () => {
   const [lightboxImage, setLightboxImage] = useState(null);
   const [showAddMembers, setShowAddMembers] = useState(false);
   const [pickedMembers, setPickedMembers] = useState([]);
-  const [mediaTab, setMediaTab] = useState("media"); // media | files
+  const [mediaTab, setMediaTab] = useState("media"); // media | files | links
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
 
@@ -64,20 +67,41 @@ const RightSidebar = () => {
   );
   const isAdmin = adminIds.has(String(authUser?._id));
 
-  const { mediaImages, mediaFiles } = useMemo(() => {
+  const { mediaImages, mediaFiles, chatLinks } = useMemo(() => {
     const images = [];
     const files = [];
+    const links = [];
+    const seenHrefs = new Set();
 
     messages.forEach((msg) => {
       if (msg.isDeleted) return;
+      if (msg.messageType === "system") return;
+
       getMessageAttachments(msg).forEach((file) => {
         if (!file?.url) return;
         if (file.kind === "image") images.push(file);
         else files.push(file);
       });
+
+      extractUrlsFromText(msg.text || "").forEach((url) => {
+        const href = toHref(url);
+        const key = href.toLowerCase();
+        if (seenHrefs.has(key)) return;
+        seenHrefs.add(key);
+        links.push({
+          url,
+          href,
+          host: linkDisplayHost(url),
+          messageId: msg._id,
+          createdAt: msg.createdAt,
+        });
+      });
     });
 
-    return { mediaImages: images, mediaFiles: files };
+    // Newest shared links first
+    links.reverse();
+
+    return { mediaImages: images, mediaFiles: files, chatLinks: links };
   }, [messages]);
 
   useEffect(() => {
@@ -308,7 +332,7 @@ const RightSidebar = () => {
 
       <hr className="border-[#fffff50] my-4" />
       <div className="px-5 text-xs pb-20">
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
           <button
             type="button"
             onClick={() => setMediaTab("media")}
@@ -330,6 +354,17 @@ const RightSidebar = () => {
             }`}
           >
             Files ({mediaFiles.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setMediaTab("links")}
+            className={`rounded-full px-3 py-1 transition ${
+              mediaTab === "links"
+                ? "bg-violet-500/30 text-white"
+                : "text-gray-400 hover:text-white"
+            }`}
+          >
+            Links ({chatLinks.length})
           </button>
         </div>
 
@@ -353,31 +388,61 @@ const RightSidebar = () => {
               ))}
             </div>
           )
-        ) : mediaFiles.length === 0 ? (
-          <p className="text-gray-500 py-2">No files yet</p>
+        ) : mediaTab === "files" ? (
+          mediaFiles.length === 0 ? (
+            <p className="text-gray-500 py-2">No files yet</p>
+          ) : (
+            <div className="max-h-[260px] overflow-y-auto space-y-2">
+              {mediaFiles.map((file, index) => (
+                <a
+                  key={`${file.url}-${index}`}
+                  href={file.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  download={file.name}
+                  className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-2.5 py-2 hover:bg-white/10 transition"
+                  title="Open / download"
+                >
+                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-violet-500/20 text-[10px] font-semibold text-violet-200">
+                    {fileBadge(file.kind)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[12px] text-white">
+                      {file.name || attachmentLabel(file.kind)}
+                    </p>
+                    <p className="text-[10px] text-gray-400">
+                      {[attachmentLabel(file.kind), formatFileSize(file.size)]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  </div>
+                  <span className="text-[10px] text-violet-300 flex-shrink-0">
+                    Open
+                  </span>
+                </a>
+              ))}
+            </div>
+          )
+        ) : chatLinks.length === 0 ? (
+          <p className="text-gray-500 py-2">No links yet</p>
         ) : (
           <div className="max-h-[260px] overflow-y-auto space-y-2">
-            {mediaFiles.map((file, index) => (
+            {chatLinks.map((link, index) => (
               <a
-                key={`${file.url}-${index}`}
-                href={file.url}
+                key={`${link.href}-${index}`}
+                href={link.href}
                 target="_blank"
-                rel="noreferrer"
-                download={file.name}
+                rel="noopener noreferrer"
                 className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-2.5 py-2 hover:bg-white/10 transition"
-                title="Open / download"
+                title={link.href}
               >
-                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-violet-500/20 text-[10px] font-semibold text-violet-200">
-                  {fileBadge(file.kind)}
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-sky-500/20 text-[10px] font-semibold text-sky-200">
+                  URL
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[12px] text-white">
-                    {file.name || attachmentLabel(file.kind)}
-                  </p>
-                  <p className="text-[10px] text-gray-400">
-                    {[attachmentLabel(file.kind), formatFileSize(file.size)]
-                      .filter(Boolean)
-                      .join(" · ")}
+                  <p className="truncate text-[12px] text-white">{link.host}</p>
+                  <p className="truncate text-[10px] text-sky-300/90">
+                    {link.url}
                   </p>
                 </div>
                 <span className="text-[10px] text-violet-300 flex-shrink-0">

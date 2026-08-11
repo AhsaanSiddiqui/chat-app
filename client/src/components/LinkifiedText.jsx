@@ -1,19 +1,9 @@
 import React from "react";
-
-const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
-
-const trimTrailingPunctuation = (url) => {
-  let cleaned = url;
-  let trailing = "";
-  while (/[.,!?;:)"'\]]$/.test(cleaned)) {
-    trailing = cleaned.slice(-1) + trailing;
-    cleaned = cleaned.slice(0, -1);
-  }
-  return { cleaned, trailing };
-};
-
-const toHref = (url) =>
-  /^https?:\/\//i.test(url) ? url : `https://${url}`;
+import {
+  URL_REGEX,
+  toHref,
+  trimUrlTrailingPunctuation,
+} from "../lib/utils";
 
 /**
  * Renders plain text with http(s)/www URLs as clickable links.
@@ -34,7 +24,7 @@ const LinkifiedText = ({ text }) => {
       nodes.push(text.slice(lastIndex, start));
     }
 
-    const { cleaned, trailing } = trimTrailingPunctuation(raw);
+    const { cleaned, trailing } = trimUrlTrailingPunctuation(raw);
     if (cleaned) {
       nodes.push(
         <a
