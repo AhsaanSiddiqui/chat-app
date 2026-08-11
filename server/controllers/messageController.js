@@ -313,6 +313,7 @@ export const deleteMessage = async (req, res) => {
         message.image = "";
         message.attachment = undefined;
         message.attachments = [];
+        message.reactions = [];
         message.isDeleted = true;
         message.isEdited = false;
         await message.save();
@@ -365,6 +366,70 @@ export const deleteMessageAttachment = async (req, res) => {
         }
 
         res.json({ success: true, message, fullyDeleted: result.fullyDeleted });
+    } catch (error) {
+        console.log(error.message);
+        res.json({ success: false, message: error.message });
+    }
+};
+
+const isValidReactionEmoji = (emoji) => {
+    if (!emoji || typeof emoji !== "string") return false;
+    const value = emoji.trim();
+    if (!value || value.length > 16) return false;
+    if (/^[a-zA-Z0-9\s.,!?]{2,}$/.test(value)) return false;
+    return /[^\u0000-\u007F]/.test(value) || ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👏", "✅", "❌", "👌"].includes(value);
+};
+
+// Toggle emoji reaction on a DM message
+export const reactToMessage = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { emoji } = req.body;
+        const userId = req.user._id;
+
+        if (!isValidReactionEmoji(emoji)) {
+            return res.json({ success: false, message: "Invalid reaction" });
+        }
+
+        const message = await Message.findById(id);
+        if (!message) {
+            return res.json({ success: false, message: "Message not found" });
+        }
+
+        if (message.isDeleted) {
+            return res.json({ success: false, message: "Cannot react to deleted message" });
+        }
+
+        const isParticipant =
+            String(message.senderId) === String(userId) ||
+            String(message.receiverId) === String(userId);
+
+        if (!isParticipant) {
+            return res.json({ success: false, message: "Not allowed" });
+        }
+
+        if (!Array.isArray(message.reactions)) {
+            message.reactions = [];
+        }
+
+        const existingIndex = message.reactions.findIndex(
+            (reaction) =>
+                String(reaction.userId) === String(userId) &&
+                reaction.emoji === emoji
+        );
+
+        if (existingIndex >= 0) {
+            message.reactions.splice(existingIndex, 1);
+        } else {
+            message.reactions.push({ emoji, userId });
+        }
+
+        message.markModified("reactions");
+        await message.save();
+
+        emitToChatUsers(message, "messageUpdated", message);
+
+        res.json({ success: true, message });
     } catch (error) {
         console.log(error.message);
         res.json({ success: false, message: error.message });

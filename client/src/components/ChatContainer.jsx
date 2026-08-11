@@ -11,11 +11,13 @@ import {
   isAllowedAttachmentFile,
   MAX_ATTACHMENT_SIZE,
   MAX_ATTACHMENTS_PER_MESSAGE,
+  summarizeReactions,
 } from "../lib/utils";
 import { AuthContext } from "../../context/AuthContext";
 import { ChatContext } from "../../context/ChatContext";
 import toast from "react-hot-toast";
 import ImageLightbox from "./ImageLightbox";
+import EmojiReactionPicker from "./EmojiReactionPicker";
 
 const resolveSenderId = (senderId) => {
   if (!senderId) return "";
@@ -95,6 +97,7 @@ const ChatContainer = () => {
     editMessage,
     deleteMessage,
     deleteAttachment,
+    reactToMessage,
     getMessages,
     getGroupMessages,
     isOtherUserTyping,
@@ -114,6 +117,8 @@ const ChatContainer = () => {
   const [replyingTo, setReplyingTo] = useState(null);
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [menuOpenId, setMenuOpenId] = useState(null);
+  const [reactMenuId, setReactMenuId] = useState(null);
+  const [showFullEmojiPicker, setShowFullEmojiPicker] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
 
   const activeChat = selectedGroup || selectedUser;
@@ -143,6 +148,8 @@ const ChatContainer = () => {
     setLightboxImage(null);
     setInput("");
     setMenuOpenId(null);
+    setReactMenuId(null);
+    setShowFullEmojiPicker(false);
     stopTyping();
     setTimeout(() => inputRef.current?.focus(), 0);
   }, [selectedUser?._id, selectedGroup?._id]);
@@ -161,7 +168,11 @@ const ChatContainer = () => {
   ]);
 
   useEffect(() => {
-    const closeMenu = () => setMenuOpenId(null);
+    const closeMenu = () => {
+      setMenuOpenId(null);
+      setReactMenuId(null);
+      setShowFullEmojiPicker(false);
+    };
     window.addEventListener("click", closeMenu);
     return () => window.removeEventListener("click", closeMenu);
   }, []);
@@ -485,6 +496,25 @@ const ChatContainer = () => {
     await deleteAttachment(msg._id, attachment.url);
   };
 
+  const handleReact = async (msg, emoji) => {
+    setReactMenuId(null);
+    setShowFullEmojiPicker(false);
+    setMenuOpenId(null);
+    if (msg.isDeleted || String(msg._id).startsWith("temp-")) return;
+    await reactToMessage(msg._id, emoji);
+  };
+
+  const openReactionPicker = (msgId) => {
+    setMenuOpenId(null);
+    if (reactMenuId === msgId) {
+      setReactMenuId(null);
+      setShowFullEmojiPicker(false);
+      return;
+    }
+    setReactMenuId(msgId);
+    setShowFullEmojiPicker(false);
+  };
+
   const scrollToMessage = (messageId) => {
     if (!messageId) return;
     const el = document.getElementById(`msg-${messageId}`);
@@ -610,6 +640,10 @@ const ChatContainer = () => {
                   !msg.attachment?.url &&
                   !msg.attachments?.length &&
                   !msg.isDeleted;
+                const reactionSummary = summarizeReactions(
+                  msg.reactions || [],
+                  authUser._id
+                );
 
                 return (
                   <div
@@ -640,15 +674,37 @@ const ChatContainer = () => {
 
                       {!msg.isDeleted && !isPending && (
                         <div
-                          className={`absolute -top-1 opacity-0 group-hover:opacity-100 transition-opacity ${
-                            isMine ? "-left-8" : "-right-8"
+                          className={`absolute -top-1 flex items-center gap-0.5 transition-opacity ${
+                            isMine ? "-left-[4.25rem]" : "-right-[4.25rem]"
+                          } ${
+                            reactMenuId === msg._id || menuOpenId === msg._id
+                              ? "opacity-100"
+                              : "opacity-0 group-hover:opacity-100"
                           }`}
                         >
                           <button
                             type="button"
-                            className="text-gray-300 hover:text-white text-lg px-1"
+                            title="React"
+                            className={`flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-[#1b1b22] text-sm text-gray-200 shadow hover:bg-white/10 ${
+                              reactMenuId === msg._id
+                                ? "opacity-100 ring-1 ring-emerald-400/50"
+                                : ""
+                            }`}
                             onClick={(e) => {
                               e.stopPropagation();
+                              openReactionPicker(msg._id);
+                            }}
+                          >
+                            🙂
+                          </button>
+
+                          <button
+                            type="button"
+                            className="flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-[#1b1b22] text-sm text-gray-200 shadow hover:bg-white/10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReactMenuId(null);
+                              setShowFullEmojiPicker(false);
                               setMenuOpenId(
                                 menuOpenId === msg._id ? null : msg._id
                               );
@@ -659,7 +715,7 @@ const ChatContainer = () => {
 
                           {menuOpenId === msg._id && (
                             <div
-                              className={`absolute top-6 z-20 min-w-[110px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden ${
+                              className={`absolute top-8 z-20 min-w-[110px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden ${
                                 isMine ? "left-0" : "right-0"
                               }`}
                               onClick={(e) => e.stopPropagation()}
@@ -690,6 +746,21 @@ const ChatContainer = () => {
                                 </button>
                               )}
                             </div>
+                          )}
+
+                          {reactMenuId === msg._id && (
+                            <EmojiReactionPicker
+                              align={isMine ? "left" : "right"}
+                              showFullPicker={showFullEmojiPicker}
+                              onToggleFullPicker={() =>
+                                setShowFullEmojiPicker((prev) => !prev)
+                              }
+                              onSelect={(emoji) => handleReact(msg, emoji)}
+                              onClose={() => {
+                                setReactMenuId(null);
+                                setShowFullEmojiPicker(false);
+                              }}
+                            />
                           )}
                         </div>
                       )}
@@ -791,6 +862,54 @@ const ChatContainer = () => {
                               {msg.text}
                             </div>
                           ) : null}
+                        </div>
+                      )}
+
+                      {!msg.isDeleted && reactionSummary.length > 0 && (
+                        <div
+                          className={`mt-1 flex flex-wrap gap-1 ${
+                            isMine ? "justify-end" : "justify-start"
+                          }`}
+                        >
+                          {reactionSummary.map((reaction) => (
+                            <button
+                              key={`${msg._id}-${reaction.emoji}`}
+                              type="button"
+                              title={
+                                reaction.reactedByMe
+                                  ? "Remove your reaction"
+                                  : "Add reaction"
+                              }
+                              onClick={() =>
+                                handleReact(msg, reaction.emoji)
+                              }
+                              className={`rounded-full border px-2 py-0.5 text-xs leading-none transition ${
+                                reaction.reactedByMe
+                                  ? "border-violet-400/60 bg-violet-500/25 text-white"
+                                  : "border-white/15 bg-black/30 text-white hover:bg-white/10"
+                              }`}
+                            >
+                              <span>{reaction.emoji}</span>
+                              {reaction.count > 1 && (
+                                <span className="ml-1 text-[10px] text-gray-300">
+                                  {reaction.count}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                          {!isPending && (
+                            <button
+                              type="button"
+                              title="Add reaction"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openReactionPicker(msg._id);
+                              }}
+                              className="rounded-full border border-white/15 bg-black/30 px-2 py-0.5 text-xs text-gray-300 hover:bg-white/10"
+                            >
+                              +
+                            </button>
+                          )}
                         </div>
                       )}
 

@@ -7,6 +7,7 @@ import {
     getMessages,
     getUsersForSidebar,
     markMessageAsSeen,
+    reactToMessage,
     sendMessage,
 } from "../controllers/messageController.js"
 import { handleChatUpload } from "../lib/attachments.js"
@@ -16,6 +17,7 @@ const messageRouter = express.Router();
 messageRouter.get("/users", protectRoute, getUsersForSidebar);
 messageRouter.put("/mark/:id", protectRoute, markMessageAsSeen);
 messageRouter.put("/edit/:id", protectRoute, editMessage);
+messageRouter.post("/react/:id", protectRoute, reactToMessage);
 messageRouter.delete("/delete/:id", protectRoute, deleteMessage);
 messageRouter.delete(
   "/:id/attachments",

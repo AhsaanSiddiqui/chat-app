@@ -8,6 +8,11 @@ const attachmentSchema = {
    kind: { type: String }, // image | pdf | doc | excel | zip | file
 };
 
+const reactionSchema = {
+   emoji: { type: String, required: true },
+   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+};
+
 const messageSchema = new mongoose.Schema({
    senderId: {type: mongoose.Schema.Types.ObjectId, ref: "User", required: true},
    receiverId: {type: mongoose.Schema.Types.ObjectId, ref: "User", required: true},
@@ -15,6 +20,7 @@ const messageSchema = new mongoose.Schema({
    image: {type: String,},
    attachment: attachmentSchema, // legacy single
    attachments: [attachmentSchema],
+   reactions: { type: [reactionSchema], default: [] },
    seen: {type: Boolean, default: false},
    seenAt: {type: Date},
    isEdited: {type: Boolean, default: false},

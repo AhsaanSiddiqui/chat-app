@@ -437,6 +437,7 @@ export const deleteGroupMessage = async (req, res) => {
     message.image = "";
     message.attachment = undefined;
     message.attachments = [];
+    message.reactions = [];
     message.isDeleted = true;
     message.isEdited = false;
     await message.save();
@@ -504,6 +505,78 @@ export const deleteGroupMessageAttachment = async (req, res) => {
       message: populated,
       fullyDeleted: result.fullyDeleted,
     });
+  } catch (error) {
+    console.log(error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+const isValidReactionEmoji = (emoji) => {
+  if (!emoji || typeof emoji !== "string") return false;
+  const value = emoji.trim();
+  if (!value || value.length > 16) return false;
+  if (/^[a-zA-Z0-9\s.,!?]{2,}$/.test(value)) return false;
+  return (
+    /[^\u0000-\u007F]/.test(value) ||
+    ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👏", "✅", "❌", "👌"].includes(
+      value
+    )
+  );
+};
+
+export const reactToGroupMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { emoji } = req.body;
+    const userId = req.user._id;
+
+    if (!isValidReactionEmoji(emoji)) {
+      return res.json({ success: false, message: "Invalid reaction" });
+    }
+
+    const message = await GroupMessage.findById(messageId);
+    if (!message) {
+      return res.json({ success: false, message: "Message not found" });
+    }
+
+    if (message.isDeleted) {
+      return res.json({
+        success: false,
+        message: "Cannot react to deleted message",
+      });
+    }
+
+    const group = await Group.findById(message.groupId);
+    if (!group || !ensureMember(group, userId)) {
+      return res.json({ success: false, message: "Not a group member" });
+    }
+
+    if (!Array.isArray(message.reactions)) {
+      message.reactions = [];
+    }
+
+    const existingIndex = message.reactions.findIndex(
+      (reaction) =>
+        String(reaction.userId) === String(userId) && reaction.emoji === emoji
+    );
+
+    if (existingIndex >= 0) {
+      message.reactions.splice(existingIndex, 1);
+    } else {
+      message.reactions.push({ emoji, userId });
+    }
+
+    message.markModified("reactions");
+    await message.save();
+
+    const populated = await GroupMessage.findById(message._id).populate(
+      "senderId",
+      "-password"
+    );
+
+    emitToGroupMembers(group.members, "groupMessageUpdated", populated);
+
+    res.json({ success: true, message: populated });
   } catch (error) {
     console.log(error.message);
     res.json({ success: false, message: error.message });

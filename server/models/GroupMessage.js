@@ -8,6 +8,15 @@ const attachmentSchema = {
   kind: { type: String },
 };
 
+const reactionSchema = {
+  emoji: { type: String, required: true },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+};
+
 const groupMessageSchema = new mongoose.Schema(
   {
     groupId: {
@@ -24,6 +33,7 @@ const groupMessageSchema = new mongoose.Schema(
     image: { type: String },
     attachment: attachmentSchema,
     attachments: [attachmentSchema],
+    reactions: { type: [reactionSchema], default: [] },
     seenBy: [
       {
         type: mongoose.Schema.Types.ObjectId,

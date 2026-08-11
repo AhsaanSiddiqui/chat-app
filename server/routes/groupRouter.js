@@ -9,6 +9,7 @@ import {
   getGroupById,
   getGroupMessages,
   getMyGroups,
+  reactToGroupMessage,
   removeGroupMember,
   sendGroupMessage,
   updateGroup,
@@ -31,6 +32,11 @@ groupRouter.post(
   sendGroupMessage
 );
 groupRouter.put("/messages/:messageId", protectRoute, editGroupMessage);
+groupRouter.post(
+  "/messages/:messageId/react",
+  protectRoute,
+  reactToGroupMessage
+);
 groupRouter.delete(
   "/messages/:messageId/attachments",
   protectRoute,

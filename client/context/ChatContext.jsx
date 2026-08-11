@@ -711,6 +711,37 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
+  const reactToMessage = async (messageId, emoji) => {
+    if (!messageId || !emoji || String(messageId).startsWith("temp-")) {
+      return false;
+    }
+
+    try {
+      const isGroup = !!selectedGroupRef.current?._id;
+      const { data } = await axios.post(
+        isGroup
+          ? `/api/groups/messages/${messageId}/react`
+          : `/api/messages/react/${messageId}`,
+        { emoji }
+      );
+
+      if (data.success) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            String(msg._id) === String(data.message._id) ? data.message : msg
+          )
+        );
+        return true;
+      }
+
+      toast.error(data.message || "Failed to react");
+      return false;
+    } catch (error) {
+      toast.error(error.message);
+      return false;
+    }
+  };
+
   const notifyNewMessage = (newMessage, { isGroup = false } = {}) => {
     if (!isAppInBackground()) return;
 
@@ -1047,6 +1078,7 @@ export const ChatProvider = ({ children }) => {
     editMessage,
     deleteMessage,
     deleteAttachment,
+    reactToMessage,
     setSelectedUser,
     setSelectedGroup,
     unseenMessages,
