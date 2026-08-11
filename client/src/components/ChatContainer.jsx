@@ -7,7 +7,10 @@ import {
   formatMessageTime,
   formatSeenTime,
   getAttachmentKind,
+  getMessageAttachments,
+  isAllowedAttachmentFile,
   MAX_ATTACHMENT_SIZE,
+  MAX_ATTACHMENTS_PER_MESSAGE,
 } from "../lib/utils";
 import { AuthContext } from "../../context/AuthContext";
 import { ChatContext } from "../../context/ChatContext";
@@ -91,15 +94,20 @@ const ChatContainer = () => {
 
   const scrollEnd = useRef(null);
   const inputRef = useRef(null);
+  const pendingAttachmentsRef = useRef([]);
   const [input, setInput] = useState("");
   const [editingMessage, setEditingMessage] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
-  const [pendingAttachment, setPendingAttachment] = useState(null);
+  const [pendingAttachments, setPendingAttachments] = useState([]);
   const [menuOpenId, setMenuOpenId] = useState(null);
   const [lightboxImage, setLightboxImage] = useState(null);
 
   const activeChat = selectedGroup || selectedUser;
   const isGroupChat = !!selectedGroup;
+
+  useEffect(() => {
+    pendingAttachmentsRef.current = pendingAttachments;
+  }, [pendingAttachments]);
 
   useEffect(() => {
     if (selectedUser?._id) {
@@ -112,9 +120,11 @@ const ChatContainer = () => {
 
     setEditingMessage(null);
     setReplyingTo(null);
-    setPendingAttachment((prev) => {
-      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
-      return null;
+    setPendingAttachments((prev) => {
+      prev.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
+      return [];
     });
     setLightboxImage(null);
     setInput("");
@@ -144,11 +154,11 @@ const ChatContainer = () => {
 
   useEffect(() => {
     return () => {
-      if (pendingAttachment?.previewUrl) {
-        URL.revokeObjectURL(pendingAttachment.previewUrl);
-      }
+      pendingAttachmentsRef.current.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
     };
-  }, [pendingAttachment?.previewUrl]);
+  }, []);
 
   const findMember = (userId) => {
     if (!userId) return null;
@@ -174,8 +184,10 @@ const ChatContainer = () => {
     if (!msg) return "";
     if (msg.isDeleted || msg.replyTo?.isDeleted) return "Message deleted";
     if (msg.image || msg.replyTo?.image) return "Photo";
-    if (msg.attachment?.name || msg.replyTo?.fileName) {
-      return msg.attachment?.name || msg.replyTo?.fileName;
+    const files = getMessageAttachments(msg);
+    if (files.length > 1) return `${files.length} files`;
+    if (files[0]?.name || msg.replyTo?.fileName) {
+      return files[0]?.name || msg.replyTo?.fileName;
     }
     return msg.text || msg.replyTo?.text || "";
   };
@@ -201,10 +213,20 @@ const ChatContainer = () => {
     return `${names.join(" and ")} are typing...`;
   };
 
-  const clearPendingAttachment = () => {
-    setPendingAttachment((prev) => {
-      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
-      return null;
+  const clearPendingAttachments = () => {
+    setPendingAttachments((prev) => {
+      prev.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
+      return [];
+    });
+  };
+
+  const removePendingAttachment = (id) => {
+    setPendingAttachments((prev) => {
+      const target = prev.find((item) => item.id === id);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((item) => item.id !== id);
     });
   };
 
@@ -223,27 +245,36 @@ const ChatContainer = () => {
       return;
     }
 
-    if (pendingAttachment) {
+    if (pendingAttachments.length) {
       const replyId = replyingTo?._id;
-      const pending = pendingAttachment;
+      const pending = [...pendingAttachments];
       const caption = input.trim();
-      clearPendingAttachment();
+      clearPendingAttachments();
       setReplyingTo(null);
       setInput("");
 
-      if (pending.base64Image) {
+      const onlyPastedImage =
+        pending.length === 1 && pending[0].base64Image && !pending[0].file;
+
+      if (onlyPastedImage) {
         sendMessage({
-          image: pending.base64Image,
+          image: pending[0].base64Image,
           text: caption || undefined,
           ...(replyId ? { replyTo: replyId } : {}),
         });
         return;
       }
 
+      const files = pending.map((item) => item.file).filter(Boolean);
       sendMessage({
-        file: pending.file,
-        previewUrl: pending.previewUrl,
-        fileKind: pending.kind,
+        files,
+        pendingFiles: pending.map((item) => ({
+          name: item.name,
+          size: item.size,
+          kind: item.kind,
+          mimeType: item.mimeType,
+          previewUrl: item.previewUrl || item.base64Image || "",
+        })),
         text: caption || undefined,
         ...(replyId ? { replyTo: replyId } : {}),
       });
@@ -277,56 +308,85 @@ const ChatContainer = () => {
     }
   };
 
-  const loadAttachment = (file, { base64Image } = {}) => {
-    if (!file && !base64Image) return;
-
+  const addAttachments = (fileList, { base64Image } = {}) => {
     if (editingMessage) {
       toast.error("Finish or cancel editing before attaching a file");
       return;
     }
 
-    if (file && file.size > MAX_ATTACHMENT_SIZE) {
-      toast.error("File too large. Maximum size is 600MB.");
-      return;
+    const incoming = [];
+
+    if (base64Image && (!fileList || fileList.length === 0)) {
+      incoming.push({
+        id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        file: null,
+        kind: "image",
+        previewUrl: null,
+        base64Image,
+        name: "image.jpg",
+        size: 0,
+        mimeType: "image/jpeg",
+      });
     }
 
-    const kind = file ? getAttachmentKind(file) : "image";
-
-    if (file) {
-      const allowed =
-        kind !== "file" ||
-        /\.(png|jpe?g|webp|gif|bmp|svg|heic|heif|tiff?|ico|avif|pdf|docx?|txt|rtf|odt|xlsx?|csv|ods|zip|rar|7z)$/i.test(
-          file.name
-        );
-      if (!allowed) {
-        toast.error(
-          "Unsupported file. Use images, PDF, Word, Excel, or ZIP."
-        );
+    Array.from(fileList || []).forEach((file) => {
+      if (!isAllowedAttachmentFile(file)) {
+        toast.error(`Unsupported file: ${file.name}`);
         return;
       }
-    }
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        toast.error(`${file.name} is larger than 600MB`);
+        return;
+      }
 
-    clearPendingAttachment();
+      const kind = getAttachmentKind(file);
+      const previewUrl =
+        kind === "image" ? URL.createObjectURL(file) : null;
 
-    const previewUrl =
-      kind === "image" && file && !base64Image
-        ? URL.createObjectURL(file)
-        : base64Image || null;
-
-    setPendingAttachment({
-      file: file || null,
-      kind,
-      previewUrl,
-      base64Image: base64Image || null,
-      name: file?.name || "image.jpg",
-      size: file?.size || 0,
+      incoming.push({
+        id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        file,
+        kind,
+        previewUrl,
+        base64Image: null,
+        name: file.name,
+        size: file.size,
+        mimeType: file.type,
+      });
     });
+
+    if (!incoming.length) return;
+
+    setPendingAttachments((prev) => {
+      const room = MAX_ATTACHMENTS_PER_MESSAGE - prev.length;
+      if (room <= 0) {
+        toast.error(
+          `You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`
+        );
+        incoming.forEach((item) => {
+          if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+        });
+        return prev;
+      }
+
+      if (incoming.length > room) {
+        toast.error(
+          `Only ${room} more file${room === 1 ? "" : "s"} can be added`
+        );
+        incoming.slice(room).forEach((item) => {
+          if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+        });
+      }
+
+      return [...prev, ...incoming.slice(0, room)];
+    });
+
     setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const handleSendFile = (e) => {
-    const file = e.target.files?.[0];
-    if (file) loadAttachment(file);
+    const files = e.target.files;
+    if (files?.length) addAttachments(files);
     e.target.value = "";
   };
 
@@ -347,11 +407,7 @@ const ChatContainer = () => {
           return;
         }
 
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          loadAttachment(file, { base64Image: reader.result });
-        };
-        reader.readAsDataURL(file);
+        addAttachments([file]);
         return;
       }
     }
@@ -366,9 +422,16 @@ const ChatContainer = () => {
   };
 
   const startEdit = (msg) => {
-    if (msg.isDeleted || msg.image || msg.attachment?.url) return;
+    if (
+      msg.isDeleted ||
+      msg.image ||
+      msg.attachment?.url ||
+      msg.attachments?.length
+    ) {
+      return;
+    }
     setReplyingTo(null);
-    clearPendingAttachment();
+    clearPendingAttachments();
     setEditingMessage(msg);
     setInput(msg.text || "");
     setMenuOpenId(null);
@@ -508,17 +571,19 @@ const ChatContainer = () => {
                 const groupSeenCount = Array.isArray(msg.seenBy)
                   ? msg.seenBy.length
                   : 0;
-                const imageUrl =
-                  msg.image ||
-                  (msg.attachment?.kind === "image" ? msg.attachment.url : "");
-                const nonImageAttachment =
-                  msg.attachment?.url && msg.attachment?.kind !== "image"
-                    ? msg.attachment
-                    : msg.attachment?.name && !imageUrl
-                      ? msg.attachment
-                      : null;
+                const messageFiles = getMessageAttachments(msg);
+                const imageFiles = messageFiles.filter(
+                  (file) => file.kind === "image" && (file.url || isPending)
+                );
+                const otherFiles = messageFiles.filter(
+                  (file) => file.kind !== "image"
+                );
                 const canEdit =
-                  isMine && !msg.image && !msg.attachment?.url && !msg.isDeleted;
+                  isMine &&
+                  !msg.image &&
+                  !msg.attachment?.url &&
+                  !msg.attachments?.length &&
+                  !msg.isDeleted;
 
                 return (
                   <div
@@ -644,21 +709,35 @@ const ChatContainer = () => {
                             </button>
                           )}
 
-                          {imageUrl ? (
-                            <img
-                              src={imageUrl}
-                              alt=""
-                              onClick={() => setLightboxImage(imageUrl)}
-                              className="rounded-lg max-w-[220px] block cursor-zoom-in hover:opacity-95 transition"
-                            />
-                          ) : null}
+                          {imageFiles.length > 0 && (
+                            <div
+                              className={`p-1 grid gap-1 ${
+                                imageFiles.length > 1
+                                  ? "grid-cols-2"
+                                  : "grid-cols-1"
+                              }`}
+                            >
+                              {imageFiles.map((file, index) => (
+                                <img
+                                  key={`${msg._id}-img-${index}`}
+                                  src={file.url}
+                                  alt={file.name || ""}
+                                  onClick={() =>
+                                    file.url && setLightboxImage(file.url)
+                                  }
+                                  className="rounded-lg max-h-48 w-full object-cover cursor-zoom-in hover:opacity-95 transition"
+                                />
+                              ))}
+                            </div>
+                          )}
 
-                          {nonImageAttachment ? (
+                          {otherFiles.map((file, index) => (
                             <FileAttachmentCard
-                              attachment={nonImageAttachment}
-                              pending={isPending && !nonImageAttachment.url}
+                              key={`${msg._id}-file-${index}`}
+                              attachment={file}
+                              pending={isPending && !file.url}
                             />
-                          ) : null}
+                          ))}
 
                           {msg.text ? (
                             <div className="px-3 py-2 break-words text-white">
@@ -802,51 +881,64 @@ const ChatContainer = () => {
           </div>
         )}
 
-        {pendingAttachment && !editingMessage && (
+        {pendingAttachments.length > 0 && !editingMessage && (
           <div className="mx-1 mb-2 p-2 rounded-xl bg-white/10 border border-white/10">
             <div className="flex items-start justify-between gap-2 mb-2">
               <p className="text-xs text-violet-300">
-                {pendingAttachment.kind === "image"
-                  ? "Image ready to send"
-                  : "File ready to send"}
+                {pendingAttachments.length} file
+                {pendingAttachments.length > 1 ? "s" : ""} ready to send
               </p>
               <button
                 type="button"
                 className="text-gray-300 hover:text-white text-sm"
-                onClick={clearPendingAttachment}
+                onClick={clearPendingAttachments}
               >
                 ✕
               </button>
             </div>
 
-            {pendingAttachment.kind === "image" &&
-            (pendingAttachment.previewUrl || pendingAttachment.base64Image) ? (
-              <img
-                src={
-                  pendingAttachment.previewUrl || pendingAttachment.base64Image
-                }
-                alt="Preview"
-                onClick={() =>
-                  setLightboxImage(
-                    pendingAttachment.previewUrl ||
-                      pendingAttachment.base64Image
-                  )
-                }
-                className="max-h-40 rounded-lg object-contain cursor-zoom-in"
-              />
-            ) : (
-              <FileAttachmentCard
-                attachment={{
-                  name: pendingAttachment.name,
-                  size: pendingAttachment.size,
-                  kind: pendingAttachment.kind,
-                }}
-                pending
-              />
-            )}
+            <div className="max-h-48 space-y-2 overflow-y-auto">
+              {pendingAttachments.map((item) => (
+                <div
+                  key={item.id}
+                  className="relative rounded-lg bg-black/20 border border-white/5"
+                >
+                  <button
+                    type="button"
+                    onClick={() => removePendingAttachment(item.id)}
+                    className="absolute right-2 top-2 z-10 rounded-full bg-black/50 px-1.5 text-xs text-white hover:bg-black/80"
+                    title="Remove"
+                  >
+                    ✕
+                  </button>
+
+                  {item.kind === "image" &&
+                  (item.previewUrl || item.base64Image) ? (
+                    <img
+                      src={item.previewUrl || item.base64Image}
+                      alt={item.name}
+                      onClick={() =>
+                        setLightboxImage(item.previewUrl || item.base64Image)
+                      }
+                      className="max-h-32 w-full rounded-lg object-contain cursor-zoom-in"
+                    />
+                  ) : (
+                    <FileAttachmentCard
+                      attachment={{
+                        name: item.name,
+                        size: item.size,
+                        kind: item.kind,
+                      }}
+                      pending
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
 
             <p className="text-[11px] text-gray-400 mt-2">
-              Max 600MB · Press send to share, or ✕ to cancel
+              Up to {MAX_ATTACHMENTS_PER_MESSAGE} files · Max 600MB each · Press
+              send, or ✕ to cancel
             </p>
           </div>
         )}
@@ -858,7 +950,7 @@ const ChatContainer = () => {
             placeholder={
               editingMessage
                 ? "Edit your message..."
-                : pendingAttachment
+                : pendingAttachments.length
                   ? "Add a caption? (optional)"
                   : replyingTo
                     ? "Type a reply..."
@@ -878,11 +970,12 @@ const ChatContainer = () => {
                 type="file"
                 id="chat-attachment"
                 hidden
+                multiple
                 accept={ATTACHMENT_ACCEPT}
                 onChange={handleSendFile}
               />
 
-              <label htmlFor="chat-attachment" title="Attach file">
+              <label htmlFor="chat-attachment" title="Attach files">
                 <img
                   src={assets.gallery_icon}
                   alt=""

@@ -5,6 +5,7 @@ import os from "os";
 import cloudinary from "./cloudinary.js";
 
 export const MAX_FILE_SIZE = 600 * 1024 * 1024; // 600MB
+export const MAX_FILES_PER_MESSAGE = 20;
 
 const ALLOWED_EXTENSIONS = new Set([
   // images
@@ -126,6 +127,36 @@ export const removeTempFile = async (filePath) => {
   }
 };
 
+export const cleanupUploadedFiles = async (files = []) => {
+  await Promise.all(files.map((file) => removeTempFile(file?.path)));
+};
+
+export const uploadManyAttachments = async (files = []) => {
+  const uploaded = [];
+  for (const file of files) {
+    try {
+      uploaded.push(await uploadAttachmentToCloudinary(file));
+    } finally {
+      await removeTempFile(file.path);
+    }
+  }
+  return uploaded;
+};
+
+const firstImageUrl = (attachments = []) =>
+  attachments.find((item) => item.kind === "image")?.url || "";
+
+export const normalizeAttachmentsPayload = (attachments = []) => {
+  if (!attachments.length) {
+    return { attachments: [], attachment: undefined, imageUrl: "" };
+  }
+  return {
+    attachments,
+    attachment: attachments[0],
+    imageUrl: firstImageUrl(attachments),
+  };
+};
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, os.tmpdir()),
   filename: (_req, file, cb) => {
@@ -136,7 +167,10 @@ const storage = multer.diskStorage({
 
 export const chatFileUpload = multer({
   storage,
-  limits: { fileSize: MAX_FILE_SIZE },
+  limits: {
+    fileSize: MAX_FILE_SIZE,
+    files: MAX_FILES_PER_MESSAGE,
+  },
   fileFilter: (_req, file, cb) => {
     if (!isAllowedAttachment(file.originalname, file.mimetype)) {
       return cb(
@@ -147,7 +181,7 @@ export const chatFileUpload = multer({
     }
     cb(null, true);
   },
-}).single("file");
+}).array("files", MAX_FILES_PER_MESSAGE);
 
 export const handleChatUpload = (req, res, next) => {
   chatFileUpload(req, res, (err) => {
@@ -158,6 +192,12 @@ export const handleChatUpload = (req, res, next) => {
         return res.json({
           success: false,
           message: "File too large. Maximum size is 600MB.",
+        });
+      }
+      if (err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE") {
+        return res.json({
+          success: false,
+          message: `You can upload up to ${MAX_FILES_PER_MESSAGE} files at once.`,
         });
       }
       return res.json({ success: false, message: err.message });

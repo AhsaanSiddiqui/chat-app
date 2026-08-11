@@ -30,6 +30,7 @@ export function formatSeenTime(seenAt, sentAt) {
 }
 
 export const MAX_ATTACHMENT_SIZE = 600 * 1024 * 1024; // 600MB
+export const MAX_ATTACHMENTS_PER_MESSAGE = 20;
 
 export const ATTACHMENT_ACCEPT =
   "image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg,.heic,.heif,.tif,.tiff,.ico,.avif,.pdf,.doc,.docx,.txt,.rtf,.odt,.xls,.xlsx,.csv,.ods,.zip,.rar,.7z";
@@ -94,4 +95,35 @@ export function attachmentLabel(kind) {
     default:
       return "File";
   }
+}
+
+export function getMessageAttachments(msg) {
+  if (!msg) return [];
+  if (Array.isArray(msg.attachments) && msg.attachments.length) {
+    return msg.attachments;
+  }
+  if (msg.attachment?.url || msg.attachment?.name) {
+    return [msg.attachment];
+  }
+  if (msg.image) {
+    return [
+      {
+        url: msg.image,
+        name: "image.jpg",
+        kind: "image",
+        mimeType: "image/jpeg",
+        size: 0,
+      },
+    ];
+  }
+  return [];
+}
+
+export function isAllowedAttachmentFile(file) {
+  if (!file) return false;
+  const kind = getAttachmentKind(file);
+  if (kind !== "file") return true;
+  return /\.(png|jpe?g|webp|gif|bmp|svg|heic|heif|tiff?|ico|avif|pdf|docx?|txt|rtf|odt|xlsx?|csv|ods|zip|rar|7z)$/i.test(
+    file.name || ""
+  );
 }

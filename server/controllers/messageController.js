@@ -2,8 +2,10 @@ import Message from "../models/Message.js";
 import User from "../models/User.js";
 import cloudinary from "../lib/cloudinary.js"
 import {
+    cleanupUploadedFiles,
+    normalizeAttachmentsPayload,
     removeTempFile,
-    uploadAttachmentToCloudinary,
+    uploadManyAttachments,
 } from "../lib/attachments.js";
 import { io, userSocketMap } from "../server.js"
 
@@ -148,32 +150,31 @@ export const sendMessage = async (req, res) => {
         const { text, image, replyTo } = req.body;
         const receiverId = req.params.id;
         const senderId = req.user._id;
+        const uploadedFiles = Array.isArray(req.files) ? req.files : [];
 
-        let imageUrl;
-        let attachment;
+        let attachments = [];
+        let imageUrl = "";
 
-        if (req.file) {
-            try {
-                attachment = await uploadAttachmentToCloudinary(req.file);
-                if (attachment.kind === "image") {
-                    imageUrl = attachment.url;
-                }
-            } finally {
-                await removeTempFile(req.file.path);
-            }
+        if (uploadedFiles.length) {
+            attachments = await uploadManyAttachments(uploadedFiles);
+            const normalized = normalizeAttachmentsPayload(attachments);
+            attachments = normalized.attachments;
+            imageUrl = normalized.imageUrl;
         } else if (image) {
             const uploadResponse = await cloudinary.uploader.upload(image);
             imageUrl = uploadResponse.secure_url;
-            attachment = {
-                url: imageUrl,
-                name: "image.jpg",
-                size: 0,
-                mimeType: "image/jpeg",
-                kind: "image",
-            };
+            attachments = [
+                {
+                    url: imageUrl,
+                    name: "image.jpg",
+                    size: 0,
+                    mimeType: "image/jpeg",
+                    kind: "image",
+                },
+            ];
         }
 
-        if (!text?.trim() && !imageUrl && !attachment) {
+        if (!text?.trim() && !attachments.length) {
             return res.json({
                 success: false,
                 message: "Message cannot be empty",
@@ -184,6 +185,12 @@ export const sendMessage = async (req, res) => {
         if (replyTo) {
             const original = await Message.findById(replyTo);
             if (original) {
+                const originalFiles =
+                    original.attachments?.length
+                        ? original.attachments
+                        : original.attachment
+                          ? [original.attachment]
+                          : [];
                 replyData = {
                     messageId: original._id,
                     senderId: original.senderId,
@@ -191,7 +198,9 @@ export const sendMessage = async (req, res) => {
                     image: original.isDeleted ? "" : original.image,
                     fileName: original.isDeleted
                         ? ""
-                        : original.attachment?.name || "",
+                        : originalFiles.length > 1
+                          ? `${originalFiles.length} files`
+                          : originalFiles[0]?.name || "",
                     isDeleted: !!original.isDeleted,
                 };
             }
@@ -202,7 +211,12 @@ export const sendMessage = async (req, res) => {
             receiverId,
             text: text || "",
             image: imageUrl,
-            ...(attachment ? { attachment } : {}),
+            ...(attachments.length
+                ? {
+                      attachments,
+                      attachment: attachments[0],
+                  }
+                : {}),
             ...(replyData ? { replyTo: replyData } : {}),
         })
 
@@ -215,6 +229,7 @@ export const sendMessage = async (req, res) => {
 
         res.json({ success: true, newMessage })
     } catch (error) {
+        await cleanupUploadedFiles(req.files);
         if (req.file?.path) await removeTempFile(req.file.path);
         console.log(error.message)
         res.json({ success: false, message: error.message })
@@ -261,6 +276,10 @@ export const editMessage = async (req, res) => {
             return res.json({ success: false, message: "File messages cannot be edited" });
         }
 
+        if (message.attachments?.length && !message.text) {
+            return res.json({ success: false, message: "File messages cannot be edited" });
+        }
+
         message.text = text.trim();
         message.isEdited = true;
         await message.save();
@@ -292,6 +311,7 @@ export const deleteMessage = async (req, res) => {
         message.text = "";
         message.image = "";
         message.attachment = undefined;
+        message.attachments = [];
         message.isDeleted = true;
         message.isEdited = false;
         await message.save();

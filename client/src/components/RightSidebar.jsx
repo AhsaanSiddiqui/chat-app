@@ -3,6 +3,7 @@ import assets from "../assets/assets";
 import { ChatContext } from "../../context/ChatContext";
 import { AuthContext } from "../../context/AuthContext";
 import ImageLightbox from "./ImageLightbox";
+import { getMessageAttachments } from "../lib/utils";
 
 const resolveId = (value) => {
   if (!value) return "";
@@ -33,12 +34,12 @@ const RightSidebar = () => {
   useEffect(() => {
     setMsgImages(
       messages
-        .filter(
-          (msg) =>
-            !msg.isDeleted &&
-            (msg.image || msg.attachment?.kind === "image")
-        )
-        .map((msg) => msg.image || msg.attachment?.url)
+        .flatMap((msg) => {
+          if (msg.isDeleted) return [];
+          return getMessageAttachments(msg)
+            .filter((file) => file.kind === "image" && file.url)
+            .map((file) => file.url);
+        })
         .filter(Boolean)
     );
   }, [messages]);

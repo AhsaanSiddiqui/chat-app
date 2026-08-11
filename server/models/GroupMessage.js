@@ -23,6 +23,7 @@ const groupMessageSchema = new mongoose.Schema(
     text: { type: String },
     image: { type: String },
     attachment: attachmentSchema,
+    attachments: [attachmentSchema],
     seenBy: [
       {
         type: mongoose.Schema.Types.ObjectId,

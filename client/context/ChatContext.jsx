@@ -459,18 +459,49 @@ export const ChatProvider = ({ children }) => {
   const sendMessage = async (messageData) => {
     if (!authUser?._id) return;
 
-    const hasFile = messageData.file instanceof File;
-    const isImageFile =
-      hasFile && messageData.file.type?.startsWith("image/");
+    const files = Array.isArray(messageData.files)
+      ? messageData.files.filter((f) => f instanceof File)
+      : messageData.file instanceof File
+        ? [messageData.file]
+        : [];
+    const hasFiles = files.length > 0;
+    const pendingMeta = Array.isArray(messageData.pendingFiles)
+      ? messageData.pendingFiles
+      : [];
 
     const buildOptimistic = (extra = {}) => {
+      const optimisticAttachments =
+        pendingMeta.length > 0
+          ? pendingMeta.map((item) => ({
+              url: item.kind === "image" ? item.previewUrl || "" : "",
+              name: item.name,
+              size: item.size,
+              mimeType: item.mimeType || "",
+              kind: item.kind || "file",
+            }))
+          : hasFiles
+            ? files.map((file, index) => ({
+                url:
+                  file.type?.startsWith("image/") &&
+                  messageData.previewUrls?.[index]
+                    ? messageData.previewUrls[index]
+                    : "",
+                name: file.name,
+                size: file.size,
+                mimeType: file.type,
+                kind: messageData.fileKinds?.[index] || "file",
+              }))
+            : [];
+
+      const firstImage =
+        optimisticAttachments.find((a) => a.kind === "image" && a.url)?.url ||
+        messageData.image ||
+        "";
+
       const optimistic = {
         _id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         text: messageData.text || "",
-        image:
-          messageData.image ||
-          (isImageFile ? messageData.previewUrl || "" : "") ||
-          "",
+        image: firstImage,
         isEdited: false,
         isDeleted: false,
         createdAt: new Date().toISOString(),
@@ -478,14 +509,9 @@ export const ChatProvider = ({ children }) => {
         ...extra,
       };
 
-      if (hasFile) {
-        optimistic.attachment = {
-          url: isImageFile ? messageData.previewUrl || "" : "",
-          name: messageData.file.name,
-          size: messageData.file.size,
-          mimeType: messageData.file.type,
-          kind: messageData.fileKind || "file",
-        };
+      if (optimisticAttachments.length) {
+        optimistic.attachments = optimisticAttachments;
+        optimistic.attachment = optimisticAttachments[0];
       }
 
       if (messageData.replyTo) {
@@ -493,6 +519,12 @@ export const ChatProvider = ({ children }) => {
           (msg) => String(msg._id) === String(messageData.replyTo)
         );
         if (original) {
+          const originalFiles =
+            original.attachments?.length
+              ? original.attachments
+              : original.attachment
+                ? [original.attachment]
+                : [];
           optimistic.replyTo = {
             messageId: original._id,
             senderId: resolveId(original.senderId),
@@ -500,7 +532,9 @@ export const ChatProvider = ({ children }) => {
             image: original.isDeleted ? "" : original.image,
             fileName: original.isDeleted
               ? ""
-              : original.attachment?.name || "",
+              : originalFiles.length > 1
+                ? `${originalFiles.length} files`
+                : originalFiles[0]?.name || "",
             isDeleted: !!original.isDeleted,
           };
         }
@@ -510,11 +544,11 @@ export const ChatProvider = ({ children }) => {
     };
 
     const postPayload = async (url) => {
-      if (hasFile) {
+      if (hasFiles) {
         const form = new FormData();
         if (messageData.text) form.append("text", messageData.text);
         if (messageData.replyTo) form.append("replyTo", messageData.replyTo);
-        form.append("file", messageData.file);
+        files.forEach((file) => form.append("files", file));
         return axios.post(url, form, { timeout: 900000 });
       }
 
