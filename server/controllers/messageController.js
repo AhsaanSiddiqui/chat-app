@@ -8,6 +8,7 @@ import {
     removeTempFile,
     uploadManyAttachments,
 } from "../lib/attachments.js";
+import { applyOneReactionPerUser } from "../lib/reactions.js";
 import { io, userSocketMap } from "../server.js"
 
 //  Get all users except the logged in user
@@ -408,23 +409,7 @@ export const reactToMessage = async (req, res) => {
             return res.json({ success: false, message: "Not allowed" });
         }
 
-        if (!Array.isArray(message.reactions)) {
-            message.reactions = [];
-        }
-
-        const existingIndex = message.reactions.findIndex(
-            (reaction) =>
-                String(reaction.userId) === String(userId) &&
-                reaction.emoji === emoji
-        );
-
-        if (existingIndex >= 0) {
-            message.reactions.splice(existingIndex, 1);
-        } else {
-            message.reactions.push({ emoji, userId });
-        }
-
-        message.markModified("reactions");
+        applyOneReactionPerUser(message, userId, emoji);
         await message.save();
 
         emitToChatUsers(message, "messageUpdated", message);
