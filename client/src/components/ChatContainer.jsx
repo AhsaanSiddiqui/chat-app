@@ -19,6 +19,7 @@ import { ChatContext } from "../../context/ChatContext";
 import toast from "react-hot-toast";
 import ImageLightbox from "./ImageLightbox";
 import EmojiReactionPicker from "./EmojiReactionPicker";
+import ConfirmModal from "./ConfirmModal";
 
 const resolveSenderId = (senderId) => {
   if (!senderId) return "";
@@ -122,6 +123,8 @@ const ChatContainer = () => {
   const [reactAnchorEl, setReactAnchorEl] = useState(null);
   const [showFullEmojiPicker, setShowFullEmojiPicker] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   const activeChat = selectedGroup || selectedUser;
   const isGroupChat = !!selectedGroup;
@@ -476,28 +479,50 @@ const ChatContainer = () => {
     setReplyingTo(null);
   };
 
-  const handleDelete = async (msg) => {
-    setMenuOpenId(null);
-    if (!window.confirm("Delete this message for everyone?")) return;
-    await deleteMessage(msg._id);
-    if (editingMessage && String(editingMessage._id) === String(msg._id)) {
-      cancelEdit();
-    }
-    if (replyingTo && String(replyingTo._id) === String(msg._id)) {
-      cancelReply();
+  const closeConfirm = () => {
+    if (confirmLoading) return;
+    setConfirmDialog(null);
+  };
+
+  const runConfirm = async () => {
+    if (!confirmDialog?.action) return;
+    setConfirmLoading(true);
+    try {
+      await confirmDialog.action();
+      setConfirmDialog(null);
+    } finally {
+      setConfirmLoading(false);
     }
   };
 
-  const handleDeleteAttachment = async (msg, attachment) => {
+  const handleDelete = (msg) => {
+    setMenuOpenId(null);
+    setConfirmDialog({
+      title: "Delete message",
+      message: "Delete this message for everyone?",
+      confirmLabel: "Delete",
+      danger: true,
+      action: async () => {
+        await deleteMessage(msg._id);
+        if (editingMessage && String(editingMessage._id) === String(msg._id)) {
+          cancelEdit();
+        }
+        if (replyingTo && String(replyingTo._id) === String(msg._id)) {
+          cancelReply();
+        }
+      },
+    });
+  };
+
+  const handleDeleteAttachment = (msg, attachment) => {
     if (!attachment?.url || String(msg._id).startsWith("temp-")) return;
-    if (
-      !window.confirm(
-        `Remove "${attachment.name || "this file"}" from the message?`
-      )
-    ) {
-      return;
-    }
-    await deleteAttachment(msg._id, attachment.url);
+    setConfirmDialog({
+      title: "Remove file",
+      message: `Remove "${attachment.name || "this file"}" from the message?`,
+      confirmLabel: "Remove",
+      danger: true,
+      action: () => deleteAttachment(msg._id, attachment.url),
+    });
   };
 
   const handleReact = async (msg, emoji) => {
@@ -1191,6 +1216,17 @@ const ChatContainer = () => {
       <ImageLightbox
         src={lightboxImage}
         onClose={() => setLightboxImage(null)}
+      />
+
+      <ConfirmModal
+        open={!!confirmDialog}
+        title={confirmDialog?.title}
+        message={confirmDialog?.message}
+        confirmLabel={confirmDialog?.confirmLabel}
+        danger={confirmDialog?.danger}
+        loading={confirmLoading}
+        onCancel={closeConfirm}
+        onConfirm={runConfirm}
       />
     </div>
   );

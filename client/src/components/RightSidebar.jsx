@@ -3,6 +3,7 @@ import assets from "../assets/assets";
 import { ChatContext } from "../../context/ChatContext";
 import { AuthContext } from "../../context/AuthContext";
 import ImageLightbox from "./ImageLightbox";
+import ConfirmModal from "./ConfirmModal";
 import {
   attachmentLabel,
   formatFileSize,
@@ -45,6 +46,8 @@ const RightSidebar = () => {
   const [showAddMembers, setShowAddMembers] = useState(false);
   const [pickedMembers, setPickedMembers] = useState([]);
   const [mediaTab, setMediaTab] = useState("media"); // media | files
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   const active = selectedGroup || selectedUser;
   const isAdmin =
@@ -99,23 +102,45 @@ const RightSidebar = () => {
     }
   };
 
-  const handleRemoveOrLeave = async (userId) => {
-    if (!selectedGroup) return;
-    const isSelf = String(userId) === String(authUser._id);
-    const ok = window.confirm(
-      isSelf ? "Leave this group?" : "Remove this member from the group?"
-    );
-    if (!ok) return;
-    await removeGroupMember(selectedGroup._id, userId);
+  const closeConfirm = () => {
+    if (confirmLoading) return;
+    setConfirmDialog(null);
   };
 
-  const handleMakeAdmin = async (userId, memberName) => {
+  const runConfirm = async () => {
+    if (!confirmDialog?.action) return;
+    setConfirmLoading(true);
+    try {
+      await confirmDialog.action();
+      setConfirmDialog(null);
+    } finally {
+      setConfirmLoading(false);
+    }
+  };
+
+  const handleRemoveOrLeave = (userId) => {
     if (!selectedGroup) return;
-    const ok = window.confirm(
-      `Make ${memberName || "this member"} the group admin? You will no longer be admin.`
-    );
-    if (!ok) return;
-    await makeGroupAdmin(selectedGroup._id, userId);
+    const isSelf = String(userId) === String(authUser._id);
+    setConfirmDialog({
+      title: isSelf ? "Leave group" : "Remove member",
+      message: isSelf
+        ? "Are you sure you want to leave this group?"
+        : "Remove this member from the group?",
+      confirmLabel: isSelf ? "Leave" : "Remove",
+      danger: true,
+      action: () => removeGroupMember(selectedGroup._id, userId),
+    });
+  };
+
+  const handleMakeAdmin = (userId, memberName) => {
+    if (!selectedGroup) return;
+    setConfirmDialog({
+      title: "Transfer admin",
+      message: `Make ${memberName || "this member"} the group admin? You will no longer be admin.`,
+      confirmLabel: "Make admin",
+      danger: false,
+      action: () => makeGroupAdmin(selectedGroup._id, userId),
+    });
   };
 
   if (!active) return null;
@@ -364,6 +389,17 @@ const RightSidebar = () => {
       <ImageLightbox
         src={lightboxImage}
         onClose={() => setLightboxImage(null)}
+      />
+
+      <ConfirmModal
+        open={!!confirmDialog}
+        title={confirmDialog?.title}
+        message={confirmDialog?.message}
+        confirmLabel={confirmDialog?.confirmLabel}
+        danger={confirmDialog?.danger}
+        loading={confirmLoading}
+        onCancel={closeConfirm}
+        onConfirm={runConfirm}
       />
     </div>
   );
