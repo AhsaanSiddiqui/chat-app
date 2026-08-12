@@ -498,16 +498,21 @@ export const ChatProvider = ({ children }) => {
       const optimisticAttachments =
         pendingMeta.length > 0
           ? pendingMeta.map((item) => ({
-              url: item.kind === "image" ? item.previewUrl || "" : "",
+              url:
+                item.kind === "image" || item.kind === "audio"
+                  ? item.previewUrl || ""
+                  : "",
               name: item.name,
               size: item.size,
               mimeType: item.mimeType || "",
               kind: item.kind || "file",
+              previewUrl: item.previewUrl || "",
             }))
           : hasFiles
             ? files.map((file, index) => ({
                 url:
-                  file.type?.startsWith("image/") &&
+                  (file.type?.startsWith("image/") ||
+                    file.type?.startsWith("audio/")) &&
                   messageData.previewUrls?.[index]
                     ? messageData.previewUrls[index]
                     : "",

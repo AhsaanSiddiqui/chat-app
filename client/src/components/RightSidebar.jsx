@@ -37,6 +37,8 @@ const fileBadge = (kind) => {
       return "DOC";
     case "zip":
       return "ZIP";
+    case "audio":
+      return "VOICE";
     default:
       return "FILE";
   }

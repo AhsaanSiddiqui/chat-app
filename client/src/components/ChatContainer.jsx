@@ -3,6 +3,7 @@ import assets from "../assets/assets";
 import {
   ATTACHMENT_ACCEPT,
   attachmentLabel,
+  formatDuration,
   formatFileSize,
   formatMessageTime,
   formatSeenTime,
@@ -11,6 +12,7 @@ import {
   isAllowedAttachmentFile,
   MAX_ATTACHMENT_SIZE,
   MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_VOICE_SECONDS,
   formatSystemMessageText,
   summarizeReactions,
 } from "../lib/utils";
@@ -21,6 +23,7 @@ import ImageLightbox from "./ImageLightbox";
 import EmojiReactionPicker from "./EmojiReactionPicker";
 import ConfirmModal from "./ConfirmModal";
 import LinkifiedText from "./LinkifiedText";
+import VoiceMessagePlayer from "./VoiceMessagePlayer";
 
 const resolveSenderId = (senderId) => {
   if (!senderId) return "";
@@ -58,7 +61,9 @@ const FileAttachmentCard = ({ attachment, pending, canRemove, onRemove }) => {
                 ? "DOC"
                 : kind === "zip"
                   ? "ZIP"
-                  : "FILE"}
+                  : kind === "audio"
+                    ? "MIC"
+                    : "FILE"}
         </div>
         <div className="min-w-0 flex-1 pr-4">
           <p className="truncate text-sm text-white font-medium">
@@ -115,6 +120,10 @@ const ChatContainer = () => {
   const scrollEnd = useRef(null);
   const inputRef = useRef(null);
   const pendingAttachmentsRef = useRef([]);
+  const mediaRecorderRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const recordedChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
   const [input, setInput] = useState("");
   const [editingMessage, setEditingMessage] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -127,6 +136,8 @@ const ChatContainer = () => {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
 
   const activeChat = selectedGroup || selectedUser;
   const isGroupChat = !!selectedGroup;
@@ -177,6 +188,24 @@ const ChatContainer = () => {
     setReactMenuId(null);
     setReactAnchorEl(null);
     setShowFullEmojiPicker(false);
+    try {
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.onstop = null;
+        mediaRecorderRef.current.stop();
+      }
+    } catch {
+      // ignore
+    }
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    mediaStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+    mediaStreamRef.current = null;
+    mediaRecorderRef.current = null;
+    recordedChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingSeconds(0);
     stopTyping();
     setTimeout(() => inputRef.current?.focus(), 0);
   }, [selectedUser?._id, selectedGroup?._id]);
@@ -210,8 +239,126 @@ const ChatContainer = () => {
       pendingAttachmentsRef.current.forEach((item) => {
         if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
       });
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      mediaRecorderRef.current?.stop?.();
+      mediaStreamRef.current?.getTracks?.().forEach((t) => t.stop());
     };
   }, []);
+
+  const stopRecordingCleanup = () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    mediaStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+    mediaStreamRef.current = null;
+    mediaRecorderRef.current = null;
+    recordedChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  };
+
+  const cancelRecording = () => {
+    try {
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.onstop = null;
+        mediaRecorderRef.current.stop();
+      }
+    } catch {
+      // ignore
+    }
+    stopRecordingCleanup();
+  };
+
+  const stopRecordingAndAttach = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state !== "recording") {
+      stopRecordingCleanup();
+      return;
+    }
+    recorder.stop();
+  };
+
+  const startRecording = async () => {
+    if (editingMessage) {
+      toast.error("Finish or cancel editing before recording");
+      return;
+    }
+    if (isRecording) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      toast.error("Voice messages are not supported in this browser");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      recordedChunksRef.current = [];
+
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : MediaRecorder.isTypeSupported("audio/ogg")
+            ? "audio/ogg"
+            : "";
+
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const chunks = recordedChunksRef.current;
+        const blobType = recorder.mimeType || mimeType || "audio/webm";
+        const blob = new Blob(chunks, { type: blobType });
+        const extension = blobType.includes("ogg") ? "ogg" : "webm";
+        const file = new File(
+          [blob],
+          `voice-${Date.now()}.${extension}`,
+          { type: blobType }
+        );
+
+        stopRecordingCleanup();
+
+        if (!blob.size) {
+          toast.error("Recording was empty. Try again.");
+          return;
+        }
+
+        addAttachments([file]);
+      };
+
+      recorder.start(250);
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => {
+          const next = prev + 1;
+          if (next >= MAX_VOICE_SECONDS) {
+            stopRecordingAndAttach();
+          }
+          return next;
+        });
+      }, 1000);
+    } catch (error) {
+      stopRecordingCleanup();
+      toast.error(
+        error?.name === "NotAllowedError"
+          ? "Microphone permission denied"
+          : "Could not start recording"
+      );
+    }
+  };
 
   const findMember = (userId) => {
     if (!userId) return null;
@@ -238,6 +385,7 @@ const ChatContainer = () => {
     if (msg.isDeleted || msg.replyTo?.isDeleted) return "Message deleted";
     if (msg.image || msg.replyTo?.image) return "Photo";
     const files = getMessageAttachments(msg);
+    if (files.some((f) => f.kind === "audio")) return "Voice message";
     if (files.length > 1) return `${files.length} files`;
     if (files[0]?.name || msg.replyTo?.fileName) {
       return files[0]?.name || msg.replyTo?.fileName;
@@ -394,7 +542,9 @@ const ChatContainer = () => {
 
       const kind = getAttachmentKind(file);
       const previewUrl =
-        kind === "image" ? URL.createObjectURL(file) : null;
+        kind === "image" || kind === "audio"
+          ? URL.createObjectURL(file)
+          : null;
 
       incoming.push({
         id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -684,8 +834,11 @@ const ChatContainer = () => {
                 const imageFiles = messageFiles.filter(
                   (file) => file.kind === "image" && (file.url || isPending)
                 );
+                const audioFiles = messageFiles.filter(
+                  (file) => file.kind === "audio" && (file.url || isPending)
+                );
                 const otherFiles = messageFiles.filter(
-                  (file) => file.kind !== "image"
+                  (file) => file.kind !== "image" && file.kind !== "audio"
                 );
                 const canEdit =
                   isMine &&
@@ -870,9 +1023,12 @@ const ChatContainer = () => {
                                   ? "Message deleted"
                                   : msg.replyTo.image
                                     ? "Photo"
-                                    : msg.replyTo.fileName
-                                      ? msg.replyTo.fileName
-                                      : msg.replyTo.text || ""}
+                                    : msg.replyTo.fileName?.startsWith("voice-") ||
+                                        msg.replyTo.kind === "audio"
+                                      ? "Voice message"
+                                      : msg.replyTo.fileName
+                                        ? msg.replyTo.fileName
+                                        : msg.replyTo.text || ""}
                               </p>
                             </button>
                           )}
@@ -913,6 +1069,18 @@ const ChatContainer = () => {
                               ))}
                             </div>
                           )}
+
+                          {audioFiles.map((file, index) => (
+                            <VoiceMessagePlayer
+                              key={`${msg._id}-audio-${index}`}
+                              src={file.url || file.previewUrl}
+                              pending={isPending && !file.url}
+                              canRemove={isMine && !isPending && !!file.url}
+                              onRemove={() =>
+                                handleDeleteAttachment(msg, file)
+                              }
+                            />
+                          ))}
 
                           {otherFiles.map((file, index) => (
                             <FileAttachmentCard
@@ -1162,6 +1330,11 @@ const ChatContainer = () => {
                       }
                       className="max-h-32 w-full rounded-lg object-contain cursor-zoom-in"
                     />
+                  ) : item.kind === "audio" ? (
+                    <VoiceMessagePlayer
+                      src={item.previewUrl}
+                      pending={false}
+                    />
                   ) : (
                     <FileAttachmentCard
                       attachment={{
@@ -1183,6 +1356,34 @@ const ChatContainer = () => {
           </div>
         )}
 
+        {isRecording && (
+          <div className="mx-1 mb-2 flex items-center justify-between gap-3 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2">
+            <div className="flex items-center gap-2 text-sm text-red-200">
+              <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-400" />
+              Recording {formatDuration(recordingSeconds)}
+              <span className="text-[11px] text-red-200/70">
+                / {formatDuration(MAX_VOICE_SECONDS)}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={cancelRecording}
+                className="rounded-full border border-white/15 px-3 py-1 text-xs text-gray-200 hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={stopRecordingAndAttach}
+                className="rounded-full bg-violet-600 px-3 py-1 text-xs text-white hover:bg-violet-500"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 bg-white/10 rounded-full px-4">
           <input
             ref={inputRef}
@@ -1190,11 +1391,13 @@ const ChatContainer = () => {
             placeholder={
               editingMessage
                 ? "Edit your message..."
-                : pendingAttachments.length
-                  ? "Add a caption? (optional)"
-                  : replyingTo
-                    ? "Type a reply..."
-                    : "Type a message... (attach files or paste image)"
+                : isRecording
+                  ? "Recording voice message..."
+                  : pendingAttachments.length
+                    ? "Add a caption? (optional)"
+                    : replyingTo
+                      ? "Type a reply..."
+                      : "Type a message... (attach files or paste image)"
             }
             className="flex-1 bg-transparent outline-none text-white py-3 placeholder-gray-400"
             value={input}
@@ -1202,9 +1405,10 @@ const ChatContainer = () => {
             onPaste={handlePaste}
             onKeyDown={(e) => e.key === "Enter" && handleSendMessage(e)}
             onBlur={stopTyping}
+            disabled={isRecording}
           />
 
-          {!editingMessage && (
+          {!editingMessage && !isRecording && (
             <>
               <input
                 type="file"
@@ -1222,15 +1426,35 @@ const ChatContainer = () => {
                   className="w-5 cursor-pointer"
                 />
               </label>
+
+              <button
+                type="button"
+                title="Record voice message"
+                onClick={startRecording}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-lg text-violet-200 hover:bg-white/10"
+              >
+                🎙️
+              </button>
             </>
           )}
 
-          <img
-            src={assets.send_button}
-            alt=""
-            className="w-7 cursor-pointer"
-            onClick={handleSendMessage}
-          />
+          {isRecording ? (
+            <button
+              type="button"
+              title="Stop and attach"
+              onClick={stopRecordingAndAttach}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500/80 text-sm text-white hover:bg-red-500"
+            >
+              ■
+            </button>
+          ) : (
+            <img
+              src={assets.send_button}
+              alt=""
+              className="w-7 cursor-pointer"
+              onClick={handleSendMessage}
+            />
+          )}
         </div>
       </div>
 

@@ -38,6 +38,14 @@ const ALLOWED_EXTENSIONS = new Set([
   ".zip",
   ".rar",
   ".7z",
+  // voice / audio
+  ".webm",
+  ".ogg",
+  ".mp3",
+  ".m4a",
+  ".wav",
+  ".aac",
+  ".opus",
 ]);
 
 export const getExtension = (fileName = "") => {
@@ -49,6 +57,7 @@ export const isAllowedAttachment = (fileName = "", mimeType = "") => {
   const ext = getExtension(fileName);
   if (ALLOWED_EXTENSIONS.has(ext)) return true;
   if (mimeType.startsWith("image/")) return true;
+  if (mimeType.startsWith("audio/")) return true;
   return false;
 };
 
@@ -56,8 +65,31 @@ export const getFileKind = (mimeType = "", fileName = "") => {
   const ext = getExtension(fileName);
   const mime = mimeType.toLowerCase();
 
-  if (mime.startsWith("image/") || [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".heic", ".heif", ".tif", ".tiff", ".ico", ".avif"].includes(ext)) {
+  if (
+    mime.startsWith("image/") ||
+    [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".webp",
+      ".gif",
+      ".bmp",
+      ".svg",
+      ".heic",
+      ".heif",
+      ".tif",
+      ".tiff",
+      ".ico",
+      ".avif",
+    ].includes(ext)
+  ) {
     return "image";
+  }
+  if (
+    mime.startsWith("audio/") ||
+    [".webm", ".ogg", ".mp3", ".m4a", ".wav", ".aac", ".opus"].includes(ext)
+  ) {
+    return "audio";
   }
   if (mime === "application/pdf" || ext === ".pdf") return "pdf";
   if (
@@ -91,7 +123,7 @@ export const uploadAttachmentToCloudinary = async (file) => {
 
   if (!isAllowedAttachment(originalname, mimetype)) {
     throw new Error(
-      "Unsupported file type. Use images, PDF, Word, Excel, or ZIP."
+      "Unsupported file type. Use images, audio, PDF, Word, Excel, or ZIP."
     );
   }
 
@@ -100,7 +132,9 @@ export const uploadAttachmentToCloudinary = async (file) => {
   }
 
   const kind = getFileKind(mimetype, originalname);
-  const resourceType = kind === "image" ? "image" : "raw";
+  // Cloudinary treats many audio formats under "video"
+  const resourceType =
+    kind === "image" ? "image" : kind === "audio" ? "video" : "raw";
 
   const result = await cloudinary.uploader.upload(filePath, {
     resource_type: resourceType,
@@ -240,7 +274,7 @@ export const chatFileUpload = multer({
     if (!isAllowedAttachment(file.originalname, file.mimetype)) {
       return cb(
         new Error(
-          "Unsupported file type. Use images, PDF, Word, Excel, or ZIP."
+          "Unsupported file type. Use images, audio, PDF, Word, Excel, or ZIP."
         )
       );
     }

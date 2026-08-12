@@ -33,7 +33,16 @@ export const MAX_ATTACHMENT_SIZE = 600 * 1024 * 1024; // 600MB
 export const MAX_ATTACHMENTS_PER_MESSAGE = 20;
 
 export const ATTACHMENT_ACCEPT =
-  "image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg,.heic,.heif,.tif,.tiff,.ico,.avif,.pdf,.doc,.docx,.txt,.rtf,.odt,.xls,.xlsx,.csv,.ods,.zip,.rar,.7z";
+  "image/*,audio/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg,.heic,.heif,.tif,.tiff,.ico,.avif,.pdf,.doc,.docx,.txt,.rtf,.odt,.xls,.xlsx,.csv,.ods,.zip,.rar,.7z,.webm,.ogg,.mp3,.m4a,.wav,.aac,.opus";
+
+export const MAX_VOICE_SECONDS = 300; // 5 minutes
+
+export function formatDuration(seconds = 0) {
+  const total = Math.max(0, Math.floor(seconds));
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
 
 export function formatFileSize(bytes = 0) {
   if (!bytes || bytes < 0) return "";
@@ -54,6 +63,12 @@ export function getAttachmentKind(file) {
     /\.(png|jpe?g|webp|gif|bmp|svg|heic|heif|tiff?|ico|avif)$/.test(name)
   ) {
     return "image";
+  }
+  if (
+    mime.startsWith("audio/") ||
+    /\.(webm|ogg|mp3|m4a|wav|aac|opus)$/.test(name)
+  ) {
+    return "audio";
   }
   if (mime === "application/pdf" || name.endsWith(".pdf")) return "pdf";
   if (
@@ -84,6 +99,8 @@ export function attachmentLabel(kind) {
   switch (kind) {
     case "image":
       return "Photo";
+    case "audio":
+      return "Voice message";
     case "pdf":
       return "PDF";
     case "doc":
@@ -123,7 +140,7 @@ export function isAllowedAttachmentFile(file) {
   if (!file) return false;
   const kind = getAttachmentKind(file);
   if (kind !== "file") return true;
-  return /\.(png|jpe?g|webp|gif|bmp|svg|heic|heif|tiff?|ico|avif|pdf|docx?|txt|rtf|odt|xlsx?|csv|ods|zip|rar|7z)$/i.test(
+  return /\.(png|jpe?g|webp|gif|bmp|svg|heic|heif|tiff?|ico|avif|pdf|docx?|txt|rtf|odt|xlsx?|csv|ods|zip|rar|7z|webm|ogg|mp3|m4a|wav|aac|opus)$/i.test(
     file.name || ""
   );
 }
