@@ -3,6 +3,7 @@ import GroupMessage from "../models/GroupMessage.js";
 import User from "../models/User.js";
 import cloudinary from "../lib/cloudinary.js";
 import {
+  applyAttachmentMeta,
   cleanupUploadedFiles,
   normalizeAttachmentsPayload,
   removeAttachmentFromMessage,
@@ -491,6 +492,7 @@ export const sendGroupMessage = async (req, res) => {
 
     if (uploadedFiles.length) {
       attachments = await uploadManyAttachments(uploadedFiles);
+      attachments = applyAttachmentMeta(attachments, req.body.attachmentMeta);
       const normalized = normalizeAttachmentsPayload(attachments);
       attachments = normalized.attachments;
       imageUrl = normalized.imageUrl;

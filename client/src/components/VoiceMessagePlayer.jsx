@@ -1,41 +1,70 @@
 import React, { useEffect, useRef, useState } from "react";
 import { formatDuration } from "../lib/utils";
+import toast from "react-hot-toast";
 
 const VoiceMessagePlayer = ({
   src,
   pending = false,
+  durationSec = 0,
   canRemove = false,
   onRemove,
 }) => {
   const audioRef = useRef(null);
+  const knownDuration = Number(durationSec) > 0 ? Number(durationSec) : 0;
   const [playing, setPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(knownDuration);
   const [current, setCurrent] = useState(0);
 
   useEffect(() => {
     setPlaying(false);
     setCurrent(0);
-    setDuration(0);
-  }, [src]);
+    setDuration(knownDuration);
+  }, [src, knownDuration]);
 
   if (!src && !pending) return null;
 
+  const resolveDuration = () => {
+    const mediaDuration = audioRef.current?.duration;
+    if (mediaDuration && Number.isFinite(mediaDuration) && mediaDuration > 0) {
+      setDuration(mediaDuration);
+      return;
+    }
+    if (knownDuration > 0) {
+      setDuration(knownDuration);
+    }
+  };
+
   const togglePlay = async () => {
-    if (pending || !audioRef.current) return;
+    if (pending || !audioRef.current || !src) return;
     try {
       if (playing) {
         audioRef.current.pause();
         setPlaying(false);
-      } else {
-        await audioRef.current.play();
-        setPlaying(true);
+        return;
       }
-    } catch {
+      // Restart if finished
+      if (
+        audioRef.current.ended ||
+        (duration > 0 && audioRef.current.currentTime >= duration - 0.05)
+      ) {
+        audioRef.current.currentTime = 0;
+        setCurrent(0);
+      }
+      await audioRef.current.play();
+      setPlaying(true);
+      resolveDuration();
+    } catch (error) {
       setPlaying(false);
+      toast.error("Could not play voice message");
+      console.error("Voice play error:", error);
     }
   };
 
-  const progress = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
+  const displayDuration = duration > 0 ? duration : knownDuration;
+  const progress =
+    displayDuration > 0
+      ? Math.min(100, (current / displayDuration) * 100)
+      : 0;
 
   return (
     <div className="relative min-w-[200px] max-w-[280px] px-3 py-2.5">
@@ -54,23 +83,44 @@ const VoiceMessagePlayer = ({
       )}
 
       {src && (
-        <audio
+        // Cloudinary stores voice as "video" resource; <video> plays webm more reliably
+        <video
           ref={audioRef}
           src={src}
-          preload="metadata"
-          onLoadedMetadata={() => {
-            const d = audioRef.current?.duration;
-            if (d && Number.isFinite(d)) setDuration(d);
-          }}
+          preload="auto"
+          playsInline
+          className="hidden"
+          onLoadedMetadata={resolveDuration}
+          onDurationChange={resolveDuration}
+          onCanPlay={resolveDuration}
           onTimeUpdate={() => {
-            setCurrent(audioRef.current?.currentTime || 0);
+            const t = audioRef.current?.currentTime || 0;
+            setCurrent(t);
+            if (
+              (!Number.isFinite(audioRef.current?.duration) ||
+                audioRef.current.duration === Infinity) &&
+              knownDuration > 0
+            ) {
+              setDuration(knownDuration);
+            } else if (
+              audioRef.current?.duration &&
+              Number.isFinite(audioRef.current.duration)
+            ) {
+              setDuration(audioRef.current.duration);
+            } else if (t > displayDuration) {
+              setDuration(t);
+            }
           }}
           onEnded={() => {
             setPlaying(false);
             setCurrent(0);
+            if (knownDuration > 0) setDuration(knownDuration);
           }}
           onPause={() => setPlaying(false)}
           onPlay={() => setPlaying(true)}
+          onError={() => {
+            setPlaying(false);
+          }}
         />
       )}
 
@@ -92,12 +142,12 @@ const VoiceMessagePlayer = ({
               style={{ width: `${progress}%` }}
             />
           </div>
-          <div className="flex items-center justify-between text-[10px] text-white/70">
+          <div className="flex items-center justify-between gap-2 text-[10px] text-white/70">
             <span>{pending ? "Uploading..." : "Voice message"}</span>
-            <span>
+            <span className="flex-shrink-0 tabular-nums">
               {pending
                 ? ""
-                : `${formatDuration(current)} / ${formatDuration(duration || 0)}`}
+                : `${formatDuration(current)} / ${formatDuration(displayDuration)}`}
             </span>
           </div>
         </div>

@@ -191,6 +191,31 @@ export const normalizeAttachmentsPayload = (attachments = []) => {
   };
 };
 
+/** Merge client-provided meta (e.g. voice duration) onto uploaded attachments. */
+export const applyAttachmentMeta = (attachments = [], metaRaw) => {
+  let meta = metaRaw;
+  if (typeof metaRaw === "string") {
+    try {
+      meta = JSON.parse(metaRaw);
+    } catch {
+      meta = [];
+    }
+  }
+  if (!Array.isArray(meta) || !meta.length) return attachments;
+
+  return attachments.map((item, index) => {
+    const entry = meta[index] || {};
+    const duration = Number(entry.duration);
+    return {
+      ...item,
+      ...(Number.isFinite(duration) && duration > 0
+        ? { duration: Math.round(duration) }
+        : {}),
+      ...(entry.kind && !item.kind ? { kind: entry.kind } : {}),
+    };
+  });
+};
+
 export const listMessageAttachments = (message) => {
   if (Array.isArray(message.attachments) && message.attachments.length) {
     return message.attachments.map((item) =>

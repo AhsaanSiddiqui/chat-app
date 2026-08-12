@@ -5,7 +5,8 @@ const attachmentSchema = {
    name: { type: String },
    size: { type: Number },
    mimeType: { type: String },
-   kind: { type: String }, // image | pdf | doc | excel | zip | file
+   kind: { type: String }, // image | pdf | doc | excel | zip | audio | file
+   duration: { type: Number }, // seconds (voice messages)
 };
 
 const reactionSchema = {

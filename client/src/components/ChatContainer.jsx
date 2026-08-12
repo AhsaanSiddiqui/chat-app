@@ -124,6 +124,7 @@ const ChatContainer = () => {
   const mediaStreamRef = useRef(null);
   const recordedChunksRef = useRef([]);
   const recordingTimerRef = useRef(null);
+  const recordingSecondsRef = useRef(0);
   const [input, setInput] = useState("");
   const [editingMessage, setEditingMessage] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -256,6 +257,7 @@ const ChatContainer = () => {
     mediaStreamRef.current = null;
     mediaRecorderRef.current = null;
     recordedChunksRef.current = [];
+    recordingSecondsRef.current = 0;
     setIsRecording(false);
     setRecordingSeconds(0);
   };
@@ -319,13 +321,14 @@ const ChatContainer = () => {
 
       recorder.onstop = () => {
         const chunks = recordedChunksRef.current;
+        const durationSec = Math.max(1, recordingSecondsRef.current || 0);
         const blobType = recorder.mimeType || mimeType || "audio/webm";
-        const blob = new Blob(chunks, { type: blobType });
+        const blob = new Blob(chunks, { type: blobType.split(";")[0] });
         const extension = blobType.includes("ogg") ? "ogg" : "webm";
         const file = new File(
           [blob],
           `voice-${Date.now()}.${extension}`,
-          { type: blobType }
+          { type: blobType.split(";")[0] || "audio/webm" }
         );
 
         stopRecordingCleanup();
@@ -335,15 +338,17 @@ const ChatContainer = () => {
           return;
         }
 
-        addAttachments([file]);
+        addAttachments([file], { duration: durationSec });
       };
 
       recorder.start(250);
       setIsRecording(true);
       setRecordingSeconds(0);
+      recordingSecondsRef.current = 0;
       recordingTimerRef.current = setInterval(() => {
         setRecordingSeconds((prev) => {
           const next = prev + 1;
+          recordingSecondsRef.current = next;
           if (next >= MAX_VOICE_SECONDS) {
             stopRecordingAndAttach();
           }
@@ -475,6 +480,12 @@ const ChatContainer = () => {
           kind: item.kind,
           mimeType: item.mimeType,
           previewUrl: item.previewUrl || item.base64Image || "",
+          duration: item.duration || 0,
+        })),
+        attachmentMeta: pending.map((item) => ({
+          name: item.name,
+          kind: item.kind,
+          duration: item.duration || 0,
         })),
         text: caption || undefined,
         ...(replyId ? { replyTo: replyId } : {}),
@@ -509,7 +520,7 @@ const ChatContainer = () => {
     }
   };
 
-  const addAttachments = (fileList, { base64Image } = {}) => {
+  const addAttachments = (fileList, { base64Image, duration } = {}) => {
     if (editingMessage) {
       toast.error("Finish or cancel editing before attaching a file");
       return;
@@ -527,6 +538,7 @@ const ChatContainer = () => {
         name: "image.jpg",
         size: 0,
         mimeType: "image/jpeg",
+        duration: 0,
       });
     }
 
@@ -555,6 +567,8 @@ const ChatContainer = () => {
         name: file.name,
         size: file.size,
         mimeType: file.type,
+        duration:
+          kind === "audio" && Number(duration) > 0 ? Number(duration) : 0,
       });
     });
 
@@ -1074,6 +1088,7 @@ const ChatContainer = () => {
                             <VoiceMessagePlayer
                               key={`${msg._id}-audio-${index}`}
                               src={file.url || file.previewUrl}
+                              durationSec={file.duration || 0}
                               pending={isPending && !file.url}
                               canRemove={isMine && !isPending && !!file.url}
                               onRemove={() =>
@@ -1333,6 +1348,7 @@ const ChatContainer = () => {
                   ) : item.kind === "audio" ? (
                     <VoiceMessagePlayer
                       src={item.previewUrl}
+                      durationSec={item.duration || 0}
                       pending={false}
                     />
                   ) : (

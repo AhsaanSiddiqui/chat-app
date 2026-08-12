@@ -507,6 +507,7 @@ export const ChatProvider = ({ children }) => {
               mimeType: item.mimeType || "",
               kind: item.kind || "file",
               previewUrl: item.previewUrl || "",
+              duration: item.duration || 0,
             }))
           : hasFiles
             ? files.map((file, index) => ({
@@ -578,6 +579,12 @@ export const ChatProvider = ({ children }) => {
         const form = new FormData();
         if (messageData.text) form.append("text", messageData.text);
         if (messageData.replyTo) form.append("replyTo", messageData.replyTo);
+        if (messageData.attachmentMeta) {
+          form.append(
+            "attachmentMeta",
+            JSON.stringify(messageData.attachmentMeta)
+          );
+        }
         files.forEach((file) => form.append("files", file));
         return axios.post(url, form, { timeout: 900000 });
       }

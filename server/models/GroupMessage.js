@@ -6,6 +6,7 @@ const attachmentSchema = {
   size: { type: Number },
   mimeType: { type: String },
   kind: { type: String },
+  duration: { type: Number },
 };
 
 const reactionSchema = {

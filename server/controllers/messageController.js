@@ -2,11 +2,12 @@ import Message from "../models/Message.js";
 import User from "../models/User.js";
 import cloudinary from "../lib/cloudinary.js"
 import {
-    cleanupUploadedFiles,
-    normalizeAttachmentsPayload,
-    removeAttachmentFromMessage,
-    removeTempFile,
-    uploadManyAttachments,
+  cleanupUploadedFiles,
+  normalizeAttachmentsPayload,
+  applyAttachmentMeta,
+  removeAttachmentFromMessage,
+  removeTempFile,
+  uploadManyAttachments,
 } from "../lib/attachments.js";
 import { applyOneReactionPerUser } from "../lib/reactions.js";
 import { io, userSocketMap } from "../server.js"
@@ -159,6 +160,10 @@ export const sendMessage = async (req, res) => {
 
         if (uploadedFiles.length) {
             attachments = await uploadManyAttachments(uploadedFiles);
+            attachments = applyAttachmentMeta(
+                attachments,
+                req.body.attachmentMeta
+            );
             const normalized = normalizeAttachmentsPayload(attachments);
             attachments = normalized.attachments;
             imageUrl = normalized.imageUrl;
