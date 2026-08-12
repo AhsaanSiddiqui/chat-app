@@ -3,26 +3,34 @@ import assets from "../assets/assets";
 import { AuthContext } from "../../context/AuthContext";
 
 const LoginPage = () => {
-  const [currState, setCurrState] = useState("Sign up");
+  const [currState, setCurrState] = useState("Login");
   const [accountType, setAccountType] = useState("personal"); // personal | office
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [bio, setBio] = useState("");
   const [officeInviteCode, setOfficeInviteCode] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [devCodeHint, setDevCodeHint] = useState("");
-  const [step, setStep] = useState("details"); // details | bio | otp
+  const [step, setStep] = useState("details"); // details | bio | otp | reset
   const [submitting, setSubmitting] = useState(false);
 
-  const { login, requestSignup, verifySignup, resendSignupOtp } =
-    useContext(AuthContext);
+  const {
+    login,
+    requestSignup,
+    verifySignup,
+    resendSignupOtp,
+    forgotPassword,
+    resetPassword,
+  } = useContext(AuthContext);
 
-  const resetSignupFlow = () => {
+  const resetFlows = () => {
     setStep("details");
     setOtpCode("");
     setDevCodeHint("");
     setOfficeInviteCode("");
+    setNewPassword("");
   };
 
   const onSubmitHandler = async (event) => {
@@ -31,8 +39,41 @@ const LoginPage = () => {
 
     if (currState === "Login") {
       setSubmitting(true);
-      await login("login", { email, password });
-      setSubmitting(false);
+      try {
+        await login("login", { email, password });
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    if (currState === "Forgot password") {
+      if (step === "details") {
+        setSubmitting(true);
+        try {
+          const result = await forgotPassword(email);
+          if (result.success) {
+            setDevCodeHint(result.data?.devCode || "");
+            setStep("reset");
+          }
+        } finally {
+          setSubmitting(false);
+        }
+        return;
+      }
+
+      if (step === "reset") {
+        setSubmitting(true);
+        try {
+          await resetPassword({
+            email,
+            code: otpCode,
+            newPassword,
+          });
+        } finally {
+          setSubmitting(false);
+        }
+      }
       return;
     }
 
@@ -76,7 +117,7 @@ const LoginPage = () => {
     }
   };
 
-  const handleResend = async () => {
+  const handleResendSignup = async () => {
     if (submitting || !email) return;
     setSubmitting(true);
     try {
@@ -88,6 +129,30 @@ const LoginPage = () => {
       setSubmitting(false);
     }
   };
+
+  const handleResendReset = async () => {
+    if (submitting || !email) return;
+    setSubmitting(true);
+    try {
+      const result = await forgotPassword(email);
+      if (result.success && result.data?.devCode) {
+        setDevCodeHint(result.data.devCode);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const title =
+    currState === "Sign up" && step === "otp"
+      ? "Verify email"
+      : currState === "Forgot password" && step === "reset"
+        ? "Reset password"
+        : currState;
+
+  const showBack =
+    (currState === "Sign up" && step !== "details") ||
+    (currState === "Forgot password" && step !== "details");
 
   return (
     <div
@@ -102,13 +167,12 @@ const LoginPage = () => {
      flex-col gap-6 rounded-lg shadow-lg w-[min(92vw,380px)]"
       >
         <h2 className="flex justify-between items-center font-medium text-2xl">
-          {currState === "Sign up" && step === "otp"
-            ? "Verify email"
-            : currState}
-          {currState === "Sign up" && step !== "details" && (
+          {title}
+          {showBack && (
             <img
               onClick={() => {
-                if (step === "otp") setStep("bio");
+                if (currState === "Forgot password") setStep("details");
+                else if (step === "otp") setStep("bio");
                 else setStep("details");
               }}
               src={assets.arrow_icon}
@@ -156,32 +220,48 @@ const LoginPage = () => {
           />
         )}
 
-        {step !== "otp" && step !== "bio" && (
-          <>
-            <input
-              onChange={(e) => setEmail(e.target.value)}
-              value={email}
-              type="email"
-              placeholder={
-                accountType === "office" && currState === "Sign up"
-                  ? "Work email"
-                  : "Email Address"
-              }
-              required
-              className="p-2 border border-gray-500
+        {(currState === "Login" ||
+          (currState === "Sign up" && step === "details") ||
+          (currState === "Forgot password" && step === "details")) && (
+          <input
+            onChange={(e) => setEmail(e.target.value)}
+            value={email}
+            type="email"
+            placeholder={
+              accountType === "office" && currState === "Sign up"
+                ? "Work email"
+                : "Email Address"
+            }
+            required
+            className="p-2 border border-gray-500
           rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <input
-              onChange={(e) => setPassword(e.target.value)}
-              value={password}
-              type="password"
-              placeholder="Password"
-              required
-              minLength={6}
-              className="p-2 border border-gray-500
+          />
+        )}
+
+        {currState === "Login" && (
+          <input
+            onChange={(e) => setPassword(e.target.value)}
+            value={password}
+            type="password"
+            placeholder="Password"
+            required
+            minLength={5}
+            className="p-2 border border-gray-500
           rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </>
+          />
+        )}
+
+        {currState === "Sign up" && step === "details" && (
+          <input
+            onChange={(e) => setPassword(e.target.value)}
+            value={password}
+            type="password"
+            placeholder="Password (min 5 characters)"
+            required
+            minLength={5}
+            className="p-2 border border-gray-500
+          rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
         )}
 
         {currState === "Sign up" &&
@@ -196,6 +276,19 @@ const LoginPage = () => {
               className="p-2 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           )}
+
+        {currState === "Login" && (
+          <button
+            type="button"
+            onClick={() => {
+              setCurrState("Forgot password");
+              resetFlows();
+            }}
+            className="text-sm text-violet-300 hover:text-violet-200 text-left -mt-3"
+          >
+            Forgot password?
+          </button>
+        )}
 
         {currState === "Sign up" && step === "bio" && (
           <>
@@ -237,7 +330,7 @@ const LoginPage = () => {
             />
             <button
               type="button"
-              onClick={handleResend}
+              onClick={handleResendSignup}
               disabled={submitting}
               className="text-sm text-violet-300 hover:text-violet-200 text-left"
             >
@@ -245,8 +338,59 @@ const LoginPage = () => {
             </button>
             {devCodeHint && (
               <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-md p-2">
-                SMTP not sending yet — temporary code:{" "}
-                <span className="font-semibold tracking-widest">{devCodeHint}</span>
+                Temporary code:{" "}
+                <span className="font-semibold tracking-widest">
+                  {devCodeHint}
+                </span>
+              </p>
+            )}
+          </>
+        )}
+
+        {currState === "Forgot password" && step === "reset" && (
+          <>
+            <p className="text-sm text-gray-300">
+              Enter the code sent to{" "}
+              <span className="text-violet-300">{email}</span> and choose a new
+              password.
+            </p>
+            <input
+              onChange={(e) =>
+                setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+              }
+              value={otpCode}
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="6-digit code"
+              required
+              minLength={6}
+              maxLength={6}
+              className="p-2 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 tracking-[0.35em] text-center text-lg"
+            />
+            <input
+              onChange={(e) => setNewPassword(e.target.value)}
+              value={newPassword}
+              type="password"
+              placeholder="New password (min 5 characters)"
+              required
+              minLength={5}
+              className="p-2 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              type="button"
+              onClick={handleResendReset}
+              disabled={submitting}
+              className="text-sm text-violet-300 hover:text-violet-200 text-left"
+            >
+              Resend code
+            </button>
+            {devCodeHint && (
+              <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-md p-2">
+                Temporary code:{" "}
+                <span className="font-semibold tracking-widest">
+                  {devCodeHint}
+                </span>
               </p>
             )}
           </>
@@ -262,17 +406,23 @@ const LoginPage = () => {
             ? "Please wait..."
             : currState === "Login"
               ? "Login Now"
-              : step === "details"
-                ? "Continue"
-                : step === "bio"
-                  ? "Send verification code"
-                  : "Verify & create account"}
+              : currState === "Forgot password"
+                ? step === "details"
+                  ? "Send reset code"
+                  : "Update password"
+                : step === "details"
+                  ? "Continue"
+                  : step === "bio"
+                    ? "Send verification code"
+                    : "Verify & create account"}
         </button>
 
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <input type="checkbox" required={currState === "Sign up"} />
-          <p>Agree to the terms of use & privacy policy</p>
-        </div>
+        {currState === "Sign up" && (
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <input type="checkbox" required />
+            <p>Agree to the terms of use & privacy policy</p>
+          </div>
+        )}
 
         <div className="flex flex-col gap-2">
           {currState === "Sign up" ? (
@@ -281,11 +431,24 @@ const LoginPage = () => {
               <span
                 onClick={() => {
                   setCurrState("Login");
-                  resetSignupFlow();
+                  resetFlows();
                 }}
                 className="font-medium text-violet-500 cursor-pointer"
               >
                 Login here
+              </span>
+            </p>
+          ) : currState === "Forgot password" ? (
+            <p className="text-sm text-gray-600">
+              Remembered it?{" "}
+              <span
+                onClick={() => {
+                  setCurrState("Login");
+                  resetFlows();
+                }}
+                className="font-medium text-violet-500 cursor-pointer"
+              >
+                Back to login
               </span>
             </p>
           ) : (
@@ -294,7 +457,7 @@ const LoginPage = () => {
               <span
                 onClick={() => {
                   setCurrState("Sign up");
-                  resetSignupFlow();
+                  resetFlows();
                 }}
                 className="font-medium text-violet-500 cursor-pointer"
               >

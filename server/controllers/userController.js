@@ -2,17 +2,49 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import User from "../models/User.js";
 import SignupOtp from "../models/SignupOtp.js";
+import PasswordResetOtp from "../models/PasswordResetOtp.js";
 import { generateToken } from "../lib/uitls.js";
 import cloudinary from "../lib/cloudinary.js";
-import { canSendEmail, sendSignupOtpEmail } from "../lib/email.js";
+import {
+  canSendEmail,
+  sendPasswordResetOtpEmail,
+  sendSignupOtpEmail,
+} from "../lib/email.js";
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
+const MIN_PASSWORD_LENGTH = 5;
 
 const normalizeEmail = (email = "") => String(email).trim().toLowerCase();
 
-const createOtpCode = () =>
-  String(crypto.randomInt(100000, 1000000));
+const escapeRegex = (value = "") =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const findUserByEmail = async (email) => {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+
+  let user = await User.findOne({ email: normalizedEmail });
+  if (user) return user;
+
+  // Older accounts may have mixed-case emails stored
+  user = await User.findOne({
+    email: { $regex: new RegExp(`^${escapeRegex(normalizedEmail)}$`, "i") },
+  });
+
+  if (user && user.email !== normalizedEmail) {
+    user.email = normalizedEmail;
+    try {
+      await user.save();
+    } catch {
+      // ignore unique conflicts; login can still proceed with found user
+    }
+  }
+
+  return user;
+};
+
+const createOtpCode = () => String(crypto.randomInt(100000, 1000000));
 
 const hashOtp = (code) =>
   crypto.createHash("sha256").update(String(code)).digest("hex");
@@ -71,10 +103,10 @@ export const requestSignup = async (req, res) => {
       return res.json({ success: false, message: "Missing details" });
     }
 
-    if (String(password).length < 6) {
+    if (String(password).length < MIN_PASSWORD_LENGTH) {
       return res.json({
         success: false,
-        message: "Password must be at least 6 characters",
+        message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
       });
     }
 
@@ -88,7 +120,7 @@ export const requestSignup = async (req, res) => {
       }
     }
 
-    const existing = await User.findOne({ email: normalizedEmail });
+    const existing = await findUserByEmail(normalizedEmail);
     if (existing) {
       return res.json({ success: false, message: "Account already exists" });
     }
@@ -182,7 +214,7 @@ export const verifySignup = async (req, res) => {
       return res.json({ success: false, message: "Invalid verification code" });
     }
 
-    const existing = await User.findOne({ email: normalizedEmail });
+    const existing = await findUserByEmail(normalizedEmail);
     if (existing) {
       await SignupOtp.deleteMany({ email: normalizedEmail });
       return res.json({ success: false, message: "Account already exists" });
@@ -270,9 +302,15 @@ export const signup = async (_req, res) => {
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const normalizedEmail = normalizeEmail(email);
 
-    const userData = await User.findOne({ email: normalizedEmail });
+    if (!email || !password) {
+      return res.status(401).json({
+        success: false,
+        message: "Email and password are required",
+      });
+    }
+
+    const userData = await findUserByEmail(email);
 
     if (!userData) {
       return res.status(401).json({
@@ -282,7 +320,7 @@ export const login = async (req, res) => {
     }
 
     const isPasswordCorrect = await bcrypt.compare(
-      password,
+      String(password),
       userData.password
     );
 
@@ -307,6 +345,138 @@ export const login = async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+};
+
+export const forgotPassword = async (req, res) => {
+  try {
+    const normalizedEmail = normalizeEmail(req.body.email);
+    if (!normalizedEmail) {
+      return res.json({ success: false, message: "Email is required" });
+    }
+
+    const user = await findUserByEmail(normalizedEmail);
+
+    // Same response whether user exists (avoid account enumeration)
+    const genericMessage =
+      "If an account exists for this email, a reset code has been sent.";
+
+    if (!user) {
+      return res.json({
+        success: true,
+        message: genericMessage,
+        email: normalizedEmail,
+        emailSent: false,
+      });
+    }
+
+    const code = createOtpCode();
+    await PasswordResetOtp.deleteMany({ email: normalizedEmail });
+    await PasswordResetOtp.create({
+      email: normalizedEmail,
+      codeHash: hashOtp(code),
+      expiresAt: new Date(Date.now() + OTP_TTL_MS),
+      attempts: 0,
+    });
+
+    const mail = await sendPasswordResetOtpEmail({
+      to: normalizedEmail,
+      code,
+    });
+
+    const payload = {
+      success: true,
+      message: mail.sent
+        ? "Password reset code sent to your email"
+        : mail.error ||
+          "Could not send email. Use the temporary code below to reset.",
+      email: normalizedEmail,
+      emailSent: !!mail.sent,
+    };
+
+    if (shouldReturnDevCode() || !mail.sent) {
+      payload.devCode = code;
+    }
+
+    return res.json(payload);
+  } catch (error) {
+    console.log(error.message);
+    return res.json({ success: false, message: error.message });
+  }
+};
+
+export const resetPassword = async (req, res) => {
+  try {
+    const { email, code, newPassword } = req.body;
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail || !code || !newPassword) {
+      return res.json({
+        success: false,
+        message: "Email, code, and new password are required",
+      });
+    }
+
+    if (String(newPassword).length < MIN_PASSWORD_LENGTH) {
+      return res.json({
+        success: false,
+        message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      });
+    }
+
+    const pending = await PasswordResetOtp.findOne({ email: normalizedEmail });
+    if (!pending) {
+      return res.json({
+        success: false,
+        message: "No reset request found. Please request a new code.",
+      });
+    }
+
+    if (pending.expiresAt.getTime() < Date.now()) {
+      await PasswordResetOtp.deleteMany({ email: normalizedEmail });
+      return res.json({
+        success: false,
+        message: "Code expired. Please request a new one.",
+      });
+    }
+
+    if (pending.attempts >= MAX_OTP_ATTEMPTS) {
+      await PasswordResetOtp.deleteMany({ email: normalizedEmail });
+      return res.json({
+        success: false,
+        message: "Too many attempts. Please request a new code.",
+      });
+    }
+
+    if (pending.codeHash !== hashOtp(String(code).trim())) {
+      pending.attempts += 1;
+      await pending.save();
+      return res.json({ success: false, message: "Invalid verification code" });
+    }
+
+    const user = await findUserByEmail(normalizedEmail);
+    if (!user) {
+      await PasswordResetOtp.deleteMany({ email: normalizedEmail });
+      return res.json({ success: false, message: "Account not found" });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(String(newPassword), salt);
+    user.email = normalizedEmail;
+    await user.save();
+
+    await PasswordResetOtp.deleteMany({ email: normalizedEmail });
+
+    const token = generateToken(user._id);
+    return res.json({
+      success: true,
+      userData: user,
+      token,
+      message: "Password updated successfully",
+    });
+  } catch (error) {
+    console.log(error.message);
+    return res.json({ success: false, message: error.message });
   }
 };
 

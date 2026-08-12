@@ -49,21 +49,6 @@ const getTransporter = () => {
   });
 };
 
-const buildEmailContent = ({ code, accountType }) => {
-  const modeLabel = accountType === "office" ? "Office" : "Personal";
-  const subject = "Your RocketMessage verification code";
-  const text = `Your ${modeLabel} signup verification code is ${code}. It expires in 10 minutes.`;
-  const html = `
-    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111">
-      <h2 style="margin:0 0 12px">Verify your email</h2>
-      <p>Use this code to finish your <strong>${modeLabel}</strong> RocketMessage signup:</p>
-      <p style="font-size:28px;letter-spacing:6px;font-weight:700;margin:16px 0">${code}</p>
-      <p style="color:#555">This code expires in 10 minutes. If you did not request it, ignore this email.</p>
-    </div>
-  `;
-  return { subject, text, html, modeLabel };
-};
-
 const sendViaResend = async ({ to, subject, html, text }) => {
   const from =
     process.env.RESEND_FROM ||
@@ -104,15 +89,13 @@ const sendViaSmtp = async ({ to, from, subject, text, html }) => {
   return true;
 };
 
-export const sendSignupOtpEmail = async ({ to, code, accountType }) => {
+const deliverEmail = async ({ to, subject, text, html }) => {
   const from =
     process.env.SMTP_FROM ||
     process.env.SMTP_USER ||
     "noreply@rocketmessage.app";
-  const { subject, text, html } = buildEmailContent({ code, accountType });
 
   if (!canSendEmail()) {
-    console.log(`[signup-otp] No email provider configured. Code for ${to}: ${code}`);
     return {
       sent: false,
       reason: "smtp_not_configured",
@@ -121,21 +104,15 @@ export const sendSignupOtpEmail = async ({ to, code, accountType }) => {
     };
   }
 
-  // Prefer Resend on Railway — Gmail SMTP often hangs on cloud hosts
   if (hasResendConfig()) {
     try {
       await sendViaResend({ to, subject, html, text });
-      console.log(`[signup-otp] Resend email sent to ${to}`);
+      console.log(`[email] Resend sent to ${to}`);
       return { sent: true, provider: "resend" };
     } catch (error) {
-      console.error(`[signup-otp] Resend failed for ${to}:`, error.message);
-      // fall through to SMTP if available
+      console.error(`[email] Resend failed for ${to}:`, error.message);
       if (!hasSmtpConfig()) {
-        return {
-          sent: false,
-          reason: "send_failed",
-          error: error.message,
-        };
+        return { sent: false, reason: "send_failed", error: error.message };
       }
     }
   }
@@ -143,15 +120,11 @@ export const sendSignupOtpEmail = async ({ to, code, accountType }) => {
   if (hasSmtpConfig()) {
     try {
       await sendViaSmtp({ to, from, subject, text, html });
-      console.log(`[signup-otp] SMTP email sent to ${to}`);
+      console.log(`[email] SMTP sent to ${to}`);
       return { sent: true, provider: "smtp" };
     } catch (error) {
-      console.error(`[signup-otp] SMTP failed for ${to}:`, error.message);
-      return {
-        sent: false,
-        reason: "send_failed",
-        error: error.message,
-      };
+      console.error(`[email] SMTP failed for ${to}:`, error.message);
+      return { sent: false, reason: "send_failed", error: error.message };
     }
   }
 
@@ -160,4 +133,43 @@ export const sendSignupOtpEmail = async ({ to, code, accountType }) => {
     reason: "send_failed",
     error: "No working email provider",
   };
+};
+
+export const sendSignupOtpEmail = async ({ to, code, accountType }) => {
+  const modeLabel = accountType === "office" ? "Office" : "Personal";
+  if (!canSendEmail()) {
+    console.log(`[signup-otp] No email provider. Code for ${to}: ${code}`);
+  }
+  return deliverEmail({
+    to,
+    subject: "Your RocketMessage verification code",
+    text: `Your ${modeLabel} signup verification code is ${code}. It expires in 10 minutes.`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111">
+        <h2 style="margin:0 0 12px">Verify your email</h2>
+        <p>Use this code to finish your <strong>${modeLabel}</strong> RocketMessage signup:</p>
+        <p style="font-size:28px;letter-spacing:6px;font-weight:700;margin:16px 0">${code}</p>
+        <p style="color:#555">This code expires in 10 minutes.</p>
+      </div>
+    `,
+  });
+};
+
+export const sendPasswordResetOtpEmail = async ({ to, code }) => {
+  if (!canSendEmail()) {
+    console.log(`[reset-otp] No email provider. Code for ${to}: ${code}`);
+  }
+  return deliverEmail({
+    to,
+    subject: "Reset your RocketMessage password",
+    text: `Your password reset code is ${code}. It expires in 10 minutes.`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111">
+        <h2 style="margin:0 0 12px">Reset password</h2>
+        <p>Use this code to reset your RocketMessage password:</p>
+        <p style="font-size:28px;letter-spacing:6px;font-weight:700;margin:16px 0">${code}</p>
+        <p style="color:#555">This code expires in 10 minutes.</p>
+      </div>
+    `,
+  });
 };

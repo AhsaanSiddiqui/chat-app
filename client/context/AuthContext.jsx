@@ -184,6 +184,60 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const forgotPassword = async (email) => {
+    try {
+      const { data } = await axios.post(
+        "/api/auth/password/forgot",
+        { email },
+        { timeout: 25000 }
+      );
+      if (data.success) {
+        if (data.emailSent) toast.success(data.message);
+        else toast.error(data.message || "Email was not sent");
+        if (data.devCode) {
+          toast(`Use this code: ${data.devCode}`, {
+            icon: "🔑",
+            duration: 12000,
+          });
+        }
+        return { success: true, data };
+      }
+      toast.error(data.message || "Could not start password reset");
+      return { success: false, data };
+    } catch (error) {
+      const msg =
+        error.code === "ECONNABORTED"
+          ? "Server took too long. Try again."
+          : error.response?.data?.message || error.message;
+      toast.error(msg);
+      return { success: false };
+    }
+  };
+
+  const resetPassword = async ({ email, code, newPassword }) => {
+    try {
+      const { data } = await axios.post("/api/auth/password/reset", {
+        email,
+        code,
+        newPassword,
+      });
+      if (data.success) {
+        setAuthUser(data.userData);
+        setToken(data.token);
+        localStorage.setItem("token", data.token);
+        axios.defaults.headers.common["token"] = data.token;
+        connectSocket(data.userData);
+        toast.success(data.message);
+        return { success: true, data };
+      }
+      toast.error(data.message || "Could not reset password");
+      return { success: false, data };
+    } catch (error) {
+      toast.error(error.response?.data?.message || error.message);
+      return { success: false };
+    }
+  };
+
   const logout = () => {
     clearSession(false);
     toast.success("Logged out successfully");
@@ -300,6 +354,8 @@ export const AuthProvider = ({ children }) => {
     requestSignup,
     verifySignup,
     resendSignupOtp,
+    forgotPassword,
+    resetPassword,
     logout,
     updateProfile,
     checkAuth,

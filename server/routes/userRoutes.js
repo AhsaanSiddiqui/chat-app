@@ -1,9 +1,11 @@
 import express from "express";
 import {
   checkAuth,
+  forgotPassword,
   login,
   requestSignup,
   resendSignupOtp,
+  resetPassword,
   signup,
   updateProfile,
   verifySignup,
@@ -17,6 +19,8 @@ userRouter.post("/signup/request", requestSignup);
 userRouter.post("/signup/verify", verifySignup);
 userRouter.post("/signup/resend", resendSignupOtp);
 userRouter.post("/login", login);
+userRouter.post("/password/forgot", forgotPassword);
+userRouter.post("/password/reset", resetPassword);
 userRouter.put("/update-profile", protectRoute, updateProfile);
 userRouter.get("/check", protectRoute, checkAuth);
 
