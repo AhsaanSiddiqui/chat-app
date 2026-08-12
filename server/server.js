@@ -65,6 +65,52 @@ io.on("connection", (socket)=>{
         }
     });
 
+    // ---- 1:1 WebRTC call signaling ----
+    const forwardCallEvent = (eventName, payload = {}) => {
+        const to = payload?.to;
+        if (!to) return;
+        const targetSocketId = userSocketMap[String(to)];
+        if (!targetSocketId) {
+            socket.emit("call:unavailable", {
+                to: userId,
+                reason: "offline",
+            });
+            return;
+        }
+        io.to(targetSocketId).emit(eventName, {
+            ...payload,
+            from: userId,
+        });
+    };
+
+    socket.on("call:invite", (payload) => {
+        forwardCallEvent("call:invite", payload);
+    });
+
+    socket.on("call:accept", (payload) => {
+        forwardCallEvent("call:accept", payload);
+    });
+
+    socket.on("call:reject", (payload) => {
+        forwardCallEvent("call:reject", payload);
+    });
+
+    socket.on("call:end", (payload) => {
+        forwardCallEvent("call:end", payload);
+    });
+
+    socket.on("call:offer", (payload) => {
+        forwardCallEvent("call:offer", payload);
+    });
+
+    socket.on("call:answer", (payload) => {
+        forwardCallEvent("call:answer", payload);
+    });
+
+    socket.on("call:ice-candidate", (payload) => {
+        forwardCallEvent("call:ice-candidate", payload);
+    });
+
     socket.on("disconnect", ()=>{
         console.log("User Disconnected", userId);
         // Only remove if this socket is still the active one for the user

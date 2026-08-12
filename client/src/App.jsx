@@ -6,6 +6,7 @@ import ProfilePage from './pages/ProfilePage';
 import {Toaster} from 'react-hot-toast'
 import { AuthContext } from '../context/AuthContext';
 import assets from './assets/assets';
+import CallModal from './components/CallModal';
 
  const App = () => {
   const {authUser} = useContext(AuthContext)
@@ -15,6 +16,7 @@ import assets from './assets/assets';
       style={{ backgroundImage: `url(${assets.bgImage})` }}
     >
       <Toaster/>
+      {authUser && <CallModal />}
       <Routes>
          <Route path='/' element={authUser ? <HomePage /> : <Navigate to="/login" />}/>
          <Route path='/login' element={!authUser ? <LoginPage /> : <Navigate to="/"/>}/>

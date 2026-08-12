@@ -18,6 +18,7 @@ import {
 } from "../lib/utils";
 import { AuthContext } from "../../context/AuthContext";
 import { ChatContext } from "../../context/ChatContext";
+import { CallContext } from "../../context/CallContext";
 import toast from "react-hot-toast";
 import ImageLightbox from "./ImageLightbox";
 import EmojiReactionPicker from "./EmojiReactionPicker";
@@ -116,6 +117,7 @@ const ChatContainer = () => {
   } = useContext(ChatContext);
 
   const { authUser, onlineUsers } = useContext(AuthContext);
+  const { startCall } = useContext(CallContext);
 
   const scrollEnd = useRef(null);
   const inputRef = useRef(null);
@@ -797,14 +799,35 @@ const ChatContainer = () => {
           )}
         </div>
 
-        <img
-          src={assets.arrow_icon}
-          alt=""
-          onClick={closeChat}
-          className="w-6 cursor-pointer md:hidden"
-        />
-
-        <img src={assets.help_icon} alt="" className="w-5 hidden md:block" />
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {!isGroupChat && selectedUser && (
+            <>
+              <button
+                type="button"
+                title="Voice call"
+                onClick={() => startCall(selectedUser, "audio")}
+                className="rounded-full bg-white/10 px-2.5 py-1.5 text-sm hover:bg-white/20"
+              >
+                📞
+              </button>
+              <button
+                type="button"
+                title="Video call"
+                onClick={() => startCall(selectedUser, "video")}
+                className="rounded-full bg-white/10 px-2.5 py-1.5 text-sm hover:bg-white/20"
+              >
+                🎥
+              </button>
+            </>
+          )}
+          <img
+            src={assets.arrow_icon}
+            alt=""
+            onClick={closeChat}
+            className="w-6 cursor-pointer md:hidden"
+          />
+          <img src={assets.help_icon} alt="" className="w-5 hidden md:block" />
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 px-8 space-y-3">
