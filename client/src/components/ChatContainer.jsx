@@ -116,6 +116,8 @@ const ChatContainer = () => {
     markMessagePlayed,
     getMessages,
     getGroupMessages,
+    getUsers,
+    getGroups,
     isOtherUserTyping,
     groupTypingUsers,
     startTyping,
@@ -123,7 +125,7 @@ const ChatContainer = () => {
     messagesLoading,
   } = useContext(ChatContext);
 
-  const { authUser, onlineUsers } = useContext(AuthContext);
+  const { authUser, onlineUsers, ensureSocketConnected } = useContext(AuthContext);
   const { startCall } = useContext(CallContext);
 
   const scrollEnd = useRef(null);
@@ -155,6 +157,7 @@ const ChatContainer = () => {
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const activeChat = selectedGroup || selectedUser;
   const isGroupChat = !!selectedGroup;
@@ -898,6 +901,28 @@ const ChatContainer = () => {
     else setSelectedUser(null);
   };
 
+  const refreshChat = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      ensureSocketConnected?.();
+      await Promise.all([getUsers?.(), getGroups?.()]);
+      if (selectedGroup?._id) {
+        await getGroupMessages(selectedGroup._id);
+      } else if (selectedUser?._id) {
+        await getMessages(selectedUser._id);
+      }
+      nearBottomRef.current = true;
+      setShowScrollToLatest(false);
+      requestAnimationFrame(() => scrollToLatest("auto"));
+      toast.success("Chat refreshed");
+    } catch (error) {
+      toast.error(error?.message || "Could not refresh");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   if (!activeChat) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 text-gray-500 bg-white/10 h-full max-md:hidden">
@@ -975,7 +1000,17 @@ const ChatContainer = () => {
             onClick={closeChat}
             className="w-6 cursor-pointer md:hidden"
           />
-          <img src={assets.help_icon} alt="" className="w-5 hidden md:block" />
+          <button
+            type="button"
+            title="Refresh chat"
+            onClick={refreshChat}
+            disabled={isRefreshing}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-lg text-gray-300 hover:bg-white/10 hover:text-white disabled:opacity-50"
+          >
+            <span className={isRefreshing ? "inline-block animate-spin" : ""}>
+              ↻
+            </span>
+          </button>
         </div>
       </div>
 
