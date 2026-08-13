@@ -40,6 +40,7 @@ const MessageInfoModal = ({
   isGroup,
   isVoice,
   peerName,
+  otherMemberCount = 0,
   resolveUser,
   onClose,
 }) => {
@@ -70,6 +71,9 @@ const MessageInfoModal = ({
     : message.played
       ? ["peer"]
       : [];
+
+  const countLabel = (n) =>
+    isGroup && otherMemberCount > 0 ? `${n}/${otherMemberCount}` : String(n);
 
   const renderPeople = (ids, timeForPeer) => {
     if (!ids.length) return null;
@@ -136,7 +140,7 @@ const MessageInfoModal = ({
           <Section
             title={
               isGroup
-                ? `Delivered (${deliveredIds.length})`
+                ? `Delivered (${countLabel(deliveredIds.length)})`
                 : "Delivered"
             }
             emptyText="Not delivered yet"
@@ -150,7 +154,9 @@ const MessageInfoModal = ({
           </Section>
 
           <Section
-            title={isGroup ? `Seen (${seenIds.length})` : "Seen"}
+            title={
+              isGroup ? `Seen (${countLabel(seenIds.length)})` : "Seen"
+            }
             emptyText="Not seen yet"
           >
             {renderPeople(
@@ -161,7 +167,11 @@ const MessageInfoModal = ({
 
           {isVoice && (
             <Section
-              title={isGroup ? `Played (${playedIds.length})` : "Played"}
+              title={
+                isGroup
+                  ? `Played (${countLabel(playedIds.length)})`
+                  : "Played"
+              }
               emptyText="Not played yet"
             >
               {renderPeople(

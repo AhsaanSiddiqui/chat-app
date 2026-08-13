@@ -896,20 +896,32 @@ const ChatContainer = () => {
                   ? formatPlayedTime(msg.playedAt || msg.seenAt, msg.createdAt)
                   : formatSeenTime(msg.seenAt, msg.createdAt);
 
+                const otherMemberIds = isGroupChat
+                  ? new Set(
+                      (selectedGroup?.members || [])
+                        .map((m) => resolveSenderId(m))
+                        .filter((id) => id && id !== String(senderId))
+                    )
+                  : null;
+                const otherMemberCount = otherMemberIds
+                  ? otherMemberIds.size
+                  : 0;
+
                 const groupDeliveredCount = Array.isArray(msg.deliveredTo)
-                  ? msg.deliveredTo.filter(
-                      (id) => String(id) !== String(senderId)
+                  ? msg.deliveredTo.filter((id) =>
+                      otherMemberIds?.has(String(id))
                     ).length
                   : 0;
                 const groupSeenCount = Array.isArray(msg.seenBy)
-                  ? msg.seenBy.filter((id) => String(id) !== String(senderId))
+                  ? msg.seenBy.filter((id) => otherMemberIds?.has(String(id)))
                       .length
                   : 0;
-                const groupPlayedCount = Array.isArray(msg.playedBy)
-                  ? msg.playedBy.filter(
-                      (id) => String(id) !== String(senderId)
-                    ).length
-                  : 0;
+
+                const allDelivered =
+                  otherMemberCount > 0 &&
+                  groupDeliveredCount >= otherMemberCount;
+                const allSeen =
+                  otherMemberCount > 0 && groupSeenCount >= otherMemberCount;
 
                 let receiptTicks = "✓";
                 let receiptClass = "text-gray-400";
@@ -920,18 +932,19 @@ const ChatContainer = () => {
                   receiptClass = "text-gray-500";
                   receiptTitle = "Sending...";
                 } else if (isGroupChat) {
-                  if (isVoiceMessage && groupPlayedCount > 0) {
+                  if (allSeen) {
                     receiptTicks = "✓✓";
                     receiptClass = "text-sky-400";
-                    receiptTitle = `Played by ${groupPlayedCount}`;
-                  } else if (groupSeenCount > 0) {
-                    receiptTicks = "✓✓";
-                    receiptClass = "text-sky-400";
-                    receiptTitle = `Seen by ${groupSeenCount}`;
-                  } else if (groupDeliveredCount > 0) {
+                    receiptTitle = `Seen by all (${groupSeenCount}/${otherMemberCount})`;
+                  } else if (allDelivered) {
                     receiptTicks = "✓✓";
                     receiptClass = "text-gray-400";
-                    receiptTitle = `Delivered to ${groupDeliveredCount}`;
+                    receiptTitle = `Delivered to all (${groupDeliveredCount}/${otherMemberCount})`;
+                  } else if (groupDeliveredCount > 0 || groupSeenCount > 0) {
+                    // Not everyone yet — keep single tick
+                    receiptTicks = "✓";
+                    receiptClass = "text-gray-400";
+                    receiptTitle = `Delivered ${groupDeliveredCount}/${otherMemberCount} · Seen ${groupSeenCount}/${otherMemberCount}`;
                   } else {
                     receiptTicks = "✓";
                     receiptClass = "text-gray-400";
@@ -1632,6 +1645,11 @@ const ChatContainer = () => {
           getMessageAttachments(infoMessage).some((f) => f.kind === "audio")
         }
         peerName={selectedUser?.fullName}
+        otherMemberCount={
+          isGroupChat
+            ? Math.max(0, (selectedGroup?.members?.length || 0) - 1)
+            : 0
+        }
         resolveUser={findMember}
         onClose={() => setInfoMessage(null)}
       />
