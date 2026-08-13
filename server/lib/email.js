@@ -173,3 +173,33 @@ export const sendPasswordResetOtpEmail = async ({ to, code }) => {
     `,
   });
 };
+
+export const sendChatInviteEmail = async ({
+  to,
+  inviterName,
+  signupUrl,
+}) => {
+  const name = inviterName || "A QuickChat user";
+  if (!canSendEmail()) {
+    console.log(`[chat-invite] No email provider. Invite for ${to} from ${name}: ${signupUrl}`);
+  }
+  return deliverEmail({
+    to,
+    subject: `${name} invited you to QuickChat`,
+    text: `${name} wants to chat with you on QuickChat.\n\nCreate your free account:\n${signupUrl}\n\nAfter you sign up with this email, they can message you.`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111">
+        <h2 style="margin:0 0 12px">You're invited to QuickChat</h2>
+        <p><strong>${name}</strong> wants to chat with you.</p>
+        <p>Create your free account with this email address, then you can message each other.</p>
+        <p style="margin:24px 0">
+          <a href="${signupUrl}"
+             style="display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600">
+            Join QuickChat
+          </a>
+        </p>
+        <p style="color:#555;font-size:13px">Or open this link:<br/>${signupUrl}</p>
+      </div>
+    `,
+  });
+};

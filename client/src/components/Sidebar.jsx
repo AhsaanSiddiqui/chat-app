@@ -5,6 +5,8 @@ import { AuthContext } from "../../context/AuthContext";
 import { ChatContext } from "../../context/ChatContext";
 import CreateGroupModal from "./CreateGroupModal";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const Sidebar = () => {
   const {
     getUsers,
@@ -19,12 +21,21 @@ const Sidebar = () => {
     setUnseenMessages,
     unseenGroupMessages,
     setUnseenGroupMessages,
+    lookupUserByEmail,
+    inviteUserByEmail,
+    ensureContact,
+    incomingInvites,
+    outgoingPendingIds,
+    acceptContactInvite,
+    declineContactInvite,
   } = useContext(ChatContext);
 
   const { authUser, logout, onlineUsers } = useContext(AuthContext);
 
   const [input, setInput] = useState("");
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [emailLookup, setEmailLookup] = useState(null); // null | loading | result
+  const [inviting, setInviting] = useState(false);
 
   const navigate = useNavigate();
 
@@ -72,12 +83,92 @@ const Sidebar = () => {
     ? [savedNotesUser, ...filteredOthers]
     : filteredOthers;
 
+  const searchLooksLikeEmail = EMAIL_RE.test(q);
+  const localEmailMatch = searchLooksLikeEmail
+    ? filteredOthers.some((u) => (u.email || "").toLowerCase() === q)
+    : false;
+
   useEffect(() => {
     if (authUser) {
       getUsers();
       getGroups();
     }
   }, [authUser]);
+
+  // Lookup email on server when typed email isn't in local list
+  useEffect(() => {
+    if (!searchLooksLikeEmail || localEmailMatch) {
+      setEmailLookup(null);
+      return;
+    }
+
+    // Show invite card immediately; refine after server lookup
+    let cancelled = false;
+    setEmailLookup({ status: "not_found", email: q, checking: true });
+
+    const timer = setTimeout(async () => {
+      if (typeof lookupUserByEmail !== "function") {
+        if (!cancelled) {
+          setEmailLookup({ status: "not_found", email: q });
+        }
+        return;
+      }
+      try {
+        const data = await lookupUserByEmail(q);
+        if (cancelled) return;
+        if (data?.isSelf) {
+          setEmailLookup({ status: "self", email: q });
+          return;
+        }
+        if (data?.success && data.found && data.user) {
+          setEmailLookup({
+            status: "found",
+            email: q,
+            user: data.user,
+            contactStatus: data.contactStatus || null,
+            invitedByMe: !!data.invitedByMe,
+          });
+          return;
+        }
+        // Not registered, or API missing / failed → still allow invite
+        setEmailLookup({ status: "not_found", email: q });
+      } catch {
+        if (!cancelled) {
+          setEmailLookup({ status: "not_found", email: q });
+        }
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [q, searchLooksLikeEmail, localEmailMatch]);
+
+  const openFoundUser = (user) => {
+    ensureContact?.(user);
+    setSelectedUser(user);
+    setUnseenMessages((prev) => ({ ...prev, [user._id]: 0 }));
+    setInput("");
+    setEmailLookup(null);
+  };
+
+  const handleInvite = async () => {
+    const email = emailLookup?.email || q;
+    if (!email || inviting) return;
+    setInviting(true);
+    try {
+      const data = await inviteUserByEmail?.(email);
+      if (data?.accepted || data?.alreadyContact) {
+        if (data.user) openFoundUser(data.user);
+      } else if (data?.pending || data?.invited) {
+        setInput("");
+        setEmailLookup(null);
+      }
+    } finally {
+      setInviting(false);
+    }
+  };
 
   const hasOpenChat = !!(selectedUser || selectedGroup);
 
@@ -155,6 +246,54 @@ const Sidebar = () => {
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 mt-5">
+        {incomingInvites?.length > 0 && (
+          <div className="mb-5">
+            <p className="px-2 mb-2 text-[11px] uppercase tracking-wider text-amber-400/90 font-medium">
+              Invites ({incomingInvites.length})
+            </p>
+            <div className="space-y-2">
+              {incomingInvites.map((inv) => (
+                <div
+                  key={inv.contactId}
+                  className="px-3 py-2.5 rounded-xl border border-amber-500/20 bg-amber-500/10"
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <img
+                      src={inv.from?.profilePic || assets.avatar_icon}
+                      alt=""
+                      className="w-9 h-9 rounded-full object-cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">
+                        {inv.from?.fullName}
+                      </p>
+                      <p className="text-[11px] text-gray-400 truncate">
+                        {inv.from?.email}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => acceptContactInvite?.(inv.contactId)}
+                      className="flex-1 h-8 rounded-lg bg-violet-600 hover:bg-violet-500 text-xs font-medium"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => declineContactInvite?.(inv.contactId)}
+                      className="flex-1 h-8 rounded-lg bg-white/10 hover:bg-white/15 text-xs"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between px-2 mb-2">
           <p className="text-[11px] uppercase tracking-wider text-gray-500 font-medium">
             Groups
@@ -312,6 +451,113 @@ const Sidebar = () => {
               </div>
             </div>
           ))}
+
+          {emailLookup?.status === "found" && emailLookup.user && (() => {
+            const uid = String(emailLookup.user._id);
+            const isContact =
+              emailLookup.contactStatus === "accepted" ||
+              users.some(
+                (u) => !u.isSavedNotes && String(u._id) === uid
+              );
+            const isPending =
+              emailLookup.contactStatus === "pending" ||
+              outgoingPendingIds?.includes(uid);
+            return (
+              <div className="px-3 py-2.5 rounded-xl border border-violet-500/30 bg-violet-500/10 space-y-2">
+                <div className="flex items-center gap-3">
+                  <img
+                    src={emailLookup.user.profilePic || assets.avatar_icon}
+                    alt=""
+                    className="w-10 h-10 rounded-full object-cover"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">
+                      {emailLookup.user.fullName}
+                    </p>
+                    <p className="text-[11px] text-violet-300 truncate">
+                      {emailLookup.user.email}
+                    </p>
+                  </div>
+                </div>
+                {isContact ? (
+                  <button
+                    type="button"
+                    onClick={() => openFoundUser(emailLookup.user)}
+                    className="w-full h-9 rounded-lg bg-violet-600 hover:bg-violet-500 text-sm font-medium"
+                  >
+                    Open chat
+                  </button>
+                ) : isPending ? (
+                  <p className="text-[11px] text-amber-300/90 text-center py-1">
+                    Invite pending — waiting for them to accept
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleInvite}
+                    disabled={inviting}
+                    className="w-full h-9 rounded-lg bg-violet-600 hover:bg-violet-500
+                    disabled:opacity-60 text-sm font-medium"
+                  >
+                    {inviting ? "Sending…" : "Send contact invite"}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
+          {searchLooksLikeEmail &&
+            !localEmailMatch &&
+            emailLookup?.status === "not_found" && (
+            <div
+              className="px-3 py-3 rounded-xl border border-violet-500/25 bg-violet-500/10
+              space-y-2"
+            >
+              <p className="text-xs text-gray-200">
+                No QuickChat account for{" "}
+                <span className="text-white font-medium break-all">
+                  {emailLookup.email}
+                </span>
+              </p>
+              <p className="text-[11px] text-gray-400">
+                {emailLookup.checking
+                  ? "Checking account…"
+                  : "Send an invite — they’ll get an email to join QuickChat. After they sign up, they’ll see your invite to accept."}
+              </p>
+              <button
+                type="button"
+                onClick={handleInvite}
+                disabled={inviting || emailLookup.checking}
+                className="w-full h-9 rounded-lg bg-violet-600 hover:bg-violet-500
+                disabled:opacity-60 text-sm font-medium transition"
+              >
+                {inviting ? "Sending…" : "Send invite email"}
+              </button>
+            </div>
+          )}
+
+          {!q &&
+            otherUsers.length === 0 &&
+            !incomingInvites?.length && (
+              <p className="px-2 py-3 text-xs text-gray-500">
+                No contacts yet. Search someone’s email to send an invite.
+              </p>
+            )}
+
+          {emailLookup?.status === "self" && (
+            <p className="px-2 py-2 text-xs text-gray-500">
+              That’s your own email — use Saved Notes for personal notes.
+            </p>
+          )}
+
+          {q &&
+            !searchLooksLikeEmail &&
+            filteredUsers.length === 0 &&
+            filteredGroups.length === 0 && (
+              <p className="px-2 py-2 text-xs text-gray-500">
+                No matches. Try a full email to find or invite someone.
+              </p>
+            )}
         </div>
       </div>
 

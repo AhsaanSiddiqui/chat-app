@@ -12,117 +12,16 @@ import {
 } from "../lib/attachments.js";
 import { applyOneReactionPerUser } from "../lib/reactions.js";
 import { io, userSocketMap } from "../server.js"
+import { areAcceptedContacts } from "./contactController.js";
 
-//  Get all users except the logged in user
-export const getUsersForSidebar = async (req, res) => {
-    try {
-        const userId = req.user._id;
-        const myObjectId = new mongoose.Types.ObjectId(String(userId));
-
-        const [me, filteredUsers] = await Promise.all([
-            User.findById(userId).select("-password").lean(),
-            User.find({
-                _id: { $ne: userId },
-            })
-                .select("-password")
-                .lean(),
-        ]);
-
-        const [unseenCounts, lastMessages] = await Promise.all([
-            Message.aggregate([
-                {
-                    $match: {
-                        receiverId: myObjectId,
-                        seen: false,
-                        // Exclude notes-to-self (sender === receiver)
-                        $expr: { $ne: ["$senderId", "$receiverId"] },
-                    },
-                },
-                {
-                    $group: {
-                        _id: "$senderId",
-                        count: { $sum: 1 },
-                    },
-                },
-            ]),
-            Message.aggregate([
-                {
-                    $match: {
-                        $or: [
-                            { senderId: myObjectId },
-                            { receiverId: myObjectId },
-                        ],
-                    },
-                },
-                { $sort: { createdAt: -1 } },
-                {
-                    $group: {
-                        _id: {
-                            $cond: [
-                                { $eq: ["$senderId", myObjectId] },
-                                "$receiverId",
-                                "$senderId",
-                            ],
-                        },
-                        lastMessageAt: { $first: "$createdAt" },
-                    },
-                },
-            ]),
-        ]);
-
-        const unseenMessages = {};
-        unseenCounts.forEach((row) => {
-            unseenMessages[String(row._id)] = row.count;
-        });
-
-        const lastMap = {};
-        lastMessages.forEach((row) => {
-            lastMap[String(row._id)] = row.lastMessageAt;
-        });
-
-        const users = filteredUsers
-            .map((user) => ({
-                ...user,
-                lastMessageAt: lastMap[String(user._id)] || null,
-            }))
-            .sort((a, b) => {
-                const ta = a.lastMessageAt
-                    ? new Date(a.lastMessageAt).getTime()
-                    : 0;
-                const tb = b.lastMessageAt
-                    ? new Date(b.lastMessageAt).getTime()
-                    : 0;
-                if (tb !== ta) return tb - ta;
-                return String(a.fullName || "").localeCompare(
-                    String(b.fullName || "")
-                );
-            });
-
-        // Pinned "Saved Notes" self-chat (message yourself)
-        const savedNotes = me
-            ? {
-                  ...me,
-                  fullName: "Saved Notes",
-                  bio: "Your private space for important notes",
-                  isSavedNotes: true,
-                  lastMessageAt: lastMap[String(userId)] || null,
-              }
-            : null;
-
-        res.json({
-            success: true,
-            users: savedNotes ? [savedNotes, ...users] : users,
-            unseenMessages,
-        });
-
-    } catch (error) {
-        console.log(error.message);
-        res.json({
-            success: false,
-            message: error.message,
-        });
-    }
-};
+// Re-export contact sidebar/invite APIs from contact controller
+export {
+  getUsersForSidebar,
+  lookupUserByEmail,
+  inviteUserByEmail,
+  acceptContact,
+  declineContact,
+} from "./contactController.js";
 
 // Get all messages for selected user
 export const getMessages = async (req, res) => {
@@ -415,6 +314,18 @@ export const sendMessage = async (req, res) => {
             });
         }
 
+        const isSelfChat = String(receiverId) === String(senderId);
+        if (!isSelfChat) {
+            const ok = await areAcceptedContacts(senderId, receiverId);
+            if (!ok) {
+                return res.json({
+                    success: false,
+                    message:
+                        "Add this person as a contact first (send invite and wait for accept)",
+                });
+            }
+        }
+
         let replyData;
         if (replyTo) {
             const original = await Message.findById(replyTo);
@@ -440,7 +351,6 @@ export const sendMessage = async (req, res) => {
             }
         }
 
-        const isSelfChat = String(receiverId) === String(senderId);
         const now = new Date();
 
         const newMessage = await Message.create({
@@ -788,3 +698,4 @@ export const logCallActivity = async (req, res) => {
         res.json({ success: false, message: error.message });
     }
 };
+

@@ -24,6 +24,8 @@ export const ChatProvider = ({ children }) => {
   const [selectedUser, setSelectedUserState] = useState(null);
   const [selectedGroup, setSelectedGroupState] = useState(null);
   const [unseenMessages, setUnseenMessages] = useState({});
+  const [incomingInvites, setIncomingInvites] = useState([]);
+  const [outgoingPendingIds, setOutgoingPendingIds] = useState([]);
   const [unseenGroupMessages, setUnseenGroupMessages] = useState({});
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
   const [groupTypingUsers, setGroupTypingUsers] = useState([]);
@@ -142,6 +144,8 @@ export const ChatProvider = ({ children }) => {
     setUsers([]);
     setGroups([]);
     setUnseenMessages({});
+    setIncomingInvites([]);
+    setOutgoingPendingIds([]);
     setUnseenGroupMessages({});
     messageCacheRef.current = {};
     groupMessageCacheRef.current = {};
@@ -258,6 +262,10 @@ export const ChatProvider = ({ children }) => {
               ];
         setUsers(withNotes);
         setUnseenMessages(data.unseenMessages || {});
+        setIncomingInvites(data.incomingInvites || []);
+        setOutgoingPendingIds(
+          (data.outgoingPendingIds || []).map(String)
+        );
       }
     } catch (error) {
       toast.error(error.message);
@@ -1318,6 +1326,17 @@ export const ChatProvider = ({ children }) => {
       }
     };
 
+    const onContactInvite = (payload) => {
+      toast(`${payload?.from?.fullName || "Someone"} invited you to connect`, {
+        icon: "👋",
+      });
+      getUsers();
+    };
+
+    const onContactUpdated = () => {
+      getUsers();
+    };
+
     socket.on("newMessage", onNewMessage);
     socket.on("newGroupMessage", onNewGroupMessage);
     socket.on("messageUpdated", onMessageUpdated);
@@ -1334,6 +1353,8 @@ export const ChatProvider = ({ children }) => {
     socket.on("groupMessagesPlayed", onGroupMessagesPlayed);
     socket.on("groupCreated", onGroupCreated);
     socket.on("groupUpdated", onGroupUpdated);
+    socket.on("contactInvite", onContactInvite);
+    socket.on("contactUpdated", onContactUpdated);
 
     const syncOpenChat = () => {
       const selectedId = selectedUserRef.current?._id;
@@ -1377,6 +1398,8 @@ export const ChatProvider = ({ children }) => {
       socket.off("groupMessagesPlayed", onGroupMessagesPlayed);
       socket.off("groupCreated", onGroupCreated);
       socket.off("groupUpdated", onGroupUpdated);
+      socket.off("contactInvite", onContactInvite);
+      socket.off("contactUpdated", onContactUpdated);
       socket.off("connect", onConnect);
     };
   }, [socket, axios, authUser?._id]);
@@ -1428,6 +1451,119 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
+  const ensureContact = (user) => {
+    if (!user?._id) return;
+    setUsers((prev) => {
+      if (prev.some((u) => String(u._id) === String(user._id))) return prev;
+      const notes = prev.filter((u) => u.isSavedNotes);
+      const rest = prev.filter((u) => !u.isSavedNotes);
+      return [...notes, user, ...rest];
+    });
+  };
+
+  const lookupUserByEmail = async (email) => {
+    try {
+      const { data } = await axios.get("/api/messages/lookup", {
+        params: { email },
+      });
+      return data;
+    } catch (error) {
+      // Older servers may not have /lookup yet — treat as unknown email
+      return {
+        success: false,
+        found: false,
+        message: error.response?.data?.message || error.message,
+      };
+    }
+  };
+
+  const inviteUserByEmail = async (email) => {
+    try {
+      const { data } = await axios.post("/api/messages/invite", { email });
+      if (data.success) {
+        if (data.accepted && data.user) {
+          ensureContact(data.user);
+          setSelectedUser(data.user);
+          toast.success(data.message || "Contact added");
+        } else if (data.alreadyContact && data.user) {
+          ensureContact(data.user);
+          setSelectedUser(data.user);
+          toast.success(data.message || "Already in contacts");
+        } else if (data.pending) {
+          if (data.user?._id) {
+            setOutgoingPendingIds((prev) =>
+              prev.includes(String(data.user._id))
+                ? prev
+                : [...prev, String(data.user._id)]
+            );
+          }
+          toast.success(data.message || "Invite sent — waiting for accept");
+        } else if (data.invited) {
+          toast.success(data.message || "Invite email sent");
+        } else {
+          toast.success(data.message || "Invite sent");
+        }
+        getUsers();
+      } else {
+        toast.error(data.message || "Could not send invite");
+      }
+      return data;
+    } catch (error) {
+      const msg =
+        error.response?.data?.message ||
+        error.message ||
+        "Could not send invite";
+      toast.error(
+        msg.includes("404") || error.response?.status === 404
+          ? "Invite API not on server yet — redeploy the backend, then try again"
+          : msg
+      );
+      return { success: false, message: msg };
+    }
+  };
+
+  const acceptContactInvite = async (contactId) => {
+    try {
+      const { data } = await axios.put(
+        `/api/messages/contacts/${contactId}/accept`
+      );
+      if (data.success) {
+        if (data.user) ensureContact(data.user);
+        setIncomingInvites((prev) =>
+          prev.filter((i) => String(i.contactId) !== String(contactId))
+        );
+        toast.success(data.message || "Contact added");
+        getUsers();
+      } else {
+        toast.error(data.message || "Could not accept");
+      }
+      return data;
+    } catch (error) {
+      toast.error(error.message);
+      return { success: false };
+    }
+  };
+
+  const declineContactInvite = async (contactId) => {
+    try {
+      const { data } = await axios.put(
+        `/api/messages/contacts/${contactId}/decline`
+      );
+      if (data.success) {
+        setIncomingInvites((prev) =>
+          prev.filter((i) => String(i.contactId) !== String(contactId))
+        );
+        toast.success("Invite declined");
+      } else {
+        toast.error(data.message || "Could not decline");
+      }
+      return data;
+    } catch (error) {
+      toast.error(error.message);
+      return { success: false };
+    }
+  };
+
   const value = {
     messages,
     users,
@@ -1448,10 +1584,17 @@ export const ChatProvider = ({ children }) => {
     deleteAttachment,
     reactToMessage,
     markMessagePlayed,
+    lookupUserByEmail,
+    inviteUserByEmail,
+    acceptContactInvite,
+    declineContactInvite,
+    ensureContact,
     setSelectedUser,
     setSelectedGroup,
     unseenMessages,
     setUnseenMessages,
+    incomingInvites,
+    outgoingPendingIds,
     unseenGroupMessages,
     setUnseenGroupMessages,
     isOtherUserTyping,

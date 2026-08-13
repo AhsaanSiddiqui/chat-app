@@ -231,6 +231,15 @@ export const verifySignup = async (req, res) => {
 
     await SignupOtp.deleteMany({ email: normalizedEmail });
 
+    try {
+      const { attachEmailInvitesOnSignup } = await import(
+        "./contactController.js"
+      );
+      await attachEmailInvitesOnSignup(newUser);
+    } catch (e) {
+      console.log("attachEmailInvitesOnSignup:", e.message);
+    }
+
     const token = generateToken(newUser._id);
     return res.json({
       success: true,

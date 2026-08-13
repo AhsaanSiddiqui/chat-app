@@ -1,4 +1,4 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import assets from "../assets/assets";
 import { AuthContext } from "../../context/AuthContext";
 
@@ -24,6 +24,19 @@ const LoginPage = () => {
     forgotPassword,
     resetPassword,
   } = useContext(AuthContext);
+
+  // Prefill from invite link: /?email=...&signup=1
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const inviteEmail = params.get("email");
+      const wantSignup = params.get("signup") === "1";
+      if (inviteEmail) setEmail(inviteEmail);
+      if (wantSignup || inviteEmail) setCurrState("Sign up");
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const resetFlows = () => {
     setStep("details");
