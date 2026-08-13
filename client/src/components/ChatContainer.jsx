@@ -129,6 +129,8 @@ const ChatContainer = () => {
   const scrollEnd = useRef(null);
   const messagesScrollRef = useRef(null);
   const nearBottomRef = useRef(true);
+  const longPressTimerRef = useRef(null);
+  const longPressTriggeredRef = useRef(false);
   const inputRef = useRef(null);
   const pendingAttachmentsRef = useRef([]);
   const mediaRecorderRef = useRef(null);
@@ -279,6 +281,10 @@ const ChatContainer = () => {
 
   useEffect(() => {
     const closeMenu = () => {
+      if (longPressTriggeredRef.current) {
+        longPressTriggeredRef.current = false;
+        return;
+      }
       setMenuOpenId(null);
       setReactMenuId(null);
       setReactAnchorEl(null);
@@ -295,6 +301,9 @@ const ChatContainer = () => {
       });
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
+      }
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
       }
       mediaRecorderRef.current?.stop?.();
       mediaStreamRef.current?.getTracks?.().forEach((t) => t.stop());
@@ -841,6 +850,39 @@ const ChatContainer = () => {
     setShowFullEmojiPicker(false);
   };
 
+  const clearLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const startLongPress = (msg, e) => {
+    if (msg.isDeleted || String(msg._id).startsWith("temp-")) return;
+    // Ignore long-press starting on interactive controls
+    if (e?.target?.closest?.("button, a, input, textarea, video")) return;
+    longPressTriggeredRef.current = false;
+    clearLongPress();
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      openReactionPicker(msg._id, e.currentTarget);
+      if (navigator.vibrate) {
+        try {
+          navigator.vibrate(12);
+        } catch {
+          // ignore
+        }
+      }
+    }, 420);
+  };
+
+  const endLongPress = (e) => {
+    clearLongPress();
+    if (longPressTriggeredRef.current && e?.type === "touchend") {
+      e.preventDefault?.();
+    }
+  };
+
   const scrollToMessage = (messageId) => {
     if (!messageId) return;
     const el = document.getElementById(`msg-${messageId}`);
@@ -1133,6 +1175,15 @@ const ChatContainer = () => {
                     className={`flex group items-end gap-2 rounded-lg transition-shadow ${
                       isMine ? "justify-end" : "justify-start"
                     } ${isPending ? "opacity-80" : ""}`}
+                    onTouchStart={(e) => startLongPress(msg, e)}
+                    onTouchEnd={endLongPress}
+                    onTouchMove={clearLongPress}
+                    onTouchCancel={clearLongPress}
+                    onContextMenu={(e) => {
+                      if (msg.isDeleted || isPending) return;
+                      e.preventDefault();
+                      openReactionPicker(msg._id, e.currentTarget);
+                    }}
                   >
                     {!isMine && (
                       <img
@@ -1143,7 +1194,7 @@ const ChatContainer = () => {
                     )}
 
                     <div
-                      className={`max-w-lg relative ${
+                      className={`max-w-[85%] sm:max-w-lg relative ${
                         isMine ? "items-end" : "items-start"
                       }`}
                     >
@@ -1155,8 +1206,10 @@ const ChatContainer = () => {
 
                       {!msg.isDeleted && !isPending && (
                         <div
-                          className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1 transition-opacity ${
-                            isMine ? "-left-16" : "-right-16"
+                          className={`absolute z-10 top-1/2 -translate-y-1/2 hidden md:flex items-center gap-1 transition-opacity ${
+                            isMine
+                              ? "left-0 -translate-x-[calc(100%+6px)]"
+                              : "right-0 translate-x-[calc(100%+6px)]"
                           } ${
                             reactMenuId === msg._id || menuOpenId === msg._id
                               ? "opacity-100"
@@ -1197,14 +1250,24 @@ const ChatContainer = () => {
 
                           {menuOpenId === msg._id && (
                             <div
-                              className={`absolute top-9 z-20 min-w-[110px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden ${
+                              className={`absolute top-10 z-20 min-w-[120px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden ${
                                 isMine ? "left-0" : "right-0"
                               }`}
                               onClick={(e) => e.stopPropagation()}
                             >
                               <button
                                 type="button"
-                                className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
+                                className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
+                                onClick={() => {
+                                  setMenuOpenId(null);
+                                  openReactionPicker(msg._id, null);
+                                }}
+                              >
+                                React
+                              </button>
+                              <button
+                                type="button"
+                                className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
                                 onClick={() => startReply(msg)}
                               >
                                 Reply
@@ -1212,7 +1275,7 @@ const ChatContainer = () => {
                               {isMine && !isPending && (
                                 <button
                                   type="button"
-                                  className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
+                                  className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
                                   onClick={() => openMessageInfo(msg)}
                                 >
                                   Info
@@ -1221,7 +1284,7 @@ const ChatContainer = () => {
                               {canEdit && (
                                 <button
                                   type="button"
-                                  className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
+                                  className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
                                   onClick={() => startEdit(msg)}
                                 >
                                   Edit
@@ -1230,7 +1293,7 @@ const ChatContainer = () => {
                               {isMine && (
                                 <button
                                   type="button"
-                                  className="block w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-gray-800"
+                                  className="block w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-gray-800"
                                   onClick={() => handleDelete(msg)}
                                 >
                                   Delete
@@ -1241,7 +1304,7 @@ const ChatContainer = () => {
                         </div>
                       )}
 
-                      {reactMenuId === msg._id && reactAnchorEl && (
+                      {reactMenuId === msg._id && (
                         <EmojiReactionPicker
                           anchorEl={reactAnchorEl}
                           align={isMine ? "right" : "left"}
@@ -1390,7 +1453,7 @@ const ChatContainer = () => {
                               e.stopPropagation();
                               openReactionPeople(msg, reactionSummary);
                             }}
-                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs leading-none transition ${
+                            className={`inline-flex min-h-9 items-center gap-1 rounded-full border px-2.5 py-1 text-sm leading-none transition md:min-h-0 md:px-2 md:py-0.5 md:text-xs ${
                               reactionSummary.some((r) => r.reactedByMe)
                                 ? "border-violet-400/60 bg-violet-500/25 text-white"
                                 : "border-white/15 bg-black/30 text-white hover:bg-white/10"
@@ -1401,7 +1464,7 @@ const ChatContainer = () => {
                                 {reaction.emoji}
                               </span>
                             ))}
-                            <span className="ml-0.5 text-[10px] text-gray-300">
+                            <span className="ml-0.5 text-[11px] text-gray-300 md:text-[10px]">
                               {reactionSummary.reduce(
                                 (sum, r) => sum + r.count,
                                 0
@@ -1416,7 +1479,7 @@ const ChatContainer = () => {
                                 e.stopPropagation();
                                 openReactionPicker(msg._id, e.currentTarget);
                               }}
-                              className="rounded-full border border-white/15 bg-black/30 px-2 py-0.5 text-xs text-gray-300 hover:bg-white/10"
+                              className="flex min-h-9 min-w-9 items-center justify-center rounded-full border border-white/15 bg-black/30 px-2 text-sm text-gray-300 hover:bg-white/10 md:min-h-0 md:min-w-0 md:py-0.5 md:text-xs"
                             >
                               +
                             </button>
@@ -1444,6 +1507,109 @@ const ChatContainer = () => {
                           </button>
                         )}
                       </p>
+
+                      {!msg.isDeleted && !isPending && (
+                        <div
+                          className={`mt-1 flex md:hidden items-center gap-1.5 ${
+                            isMine ? "justify-end" : "justify-start"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            title="React"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openReactionPicker(msg._id, e.currentTarget);
+                            }}
+                            className="flex h-9 items-center gap-1 rounded-full border border-white/15 bg-black/35 px-3 text-sm text-white"
+                          >
+                            <span>🙂</span>
+                            <span className="text-[11px] text-gray-300">React</span>
+                          </button>
+                          <button
+                            type="button"
+                            title="More"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReactMenuId(null);
+                              setReactAnchorEl(null);
+                              setShowFullEmojiPicker(false);
+                              setMenuOpenId(
+                                menuOpenId === msg._id ? null : msg._id
+                              );
+                            }}
+                            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/35 text-white"
+                          >
+                            ⋮
+                          </button>
+                          {menuOpenId === msg._id && (
+                            <div
+                              className={`absolute z-30 mt-10 min-w-[140px] rounded-lg border border-gray-700 bg-gray-900 shadow-lg overflow-hidden ${
+                                isMine ? "right-0" : "left-0"
+                              }`}
+                              style={{ top: "auto" }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
+                                onClick={() => {
+                                  setMenuOpenId(null);
+                                  openReactionPicker(msg._id, null);
+                                }}
+                              >
+                                React
+                              </button>
+                              <button
+                                type="button"
+                                className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
+                                onClick={() => {
+                                  setMenuOpenId(null);
+                                  startReply(msg);
+                                }}
+                              >
+                                Reply
+                              </button>
+                              {isMine && (
+                                <button
+                                  type="button"
+                                  className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
+                                  onClick={() => {
+                                    setMenuOpenId(null);
+                                    openMessageInfo(msg);
+                                  }}
+                                >
+                                  Info
+                                </button>
+                              )}
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
+                                  onClick={() => {
+                                    setMenuOpenId(null);
+                                    startEdit(msg);
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                              )}
+                              {isMine && (
+                                <button
+                                  type="button"
+                                  className="block w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-gray-800"
+                                  onClick={() => {
+                                    setMenuOpenId(null);
+                                    handleDelete(msg);
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {showStatusTime && statusTimeLabel && (
                         <p className="text-[10px] text-sky-400 mt-0.5 text-right">
