@@ -451,21 +451,15 @@ const ChatContainer = () => {
     return users?.find((u) => String(u._id) === String(userId)) || null;
   };
 
-  const formatReactorNames = (userIds = []) => {
-    const names = userIds.map((id) => resolveReactorName(id));
-    if (!names.length) return "";
-    if (names.length === 1) return names[0];
-    if (names.length === 2) return `${names[0]}, ${names[1]}`;
-    return `${names[0]}, ${names[1]} +${names.length - 2}`;
-  };
-
   const openReactionPeople = (reaction) => {
     const people = (reaction.userIds || []).map((id) => {
       const profile = resolveReactorProfile(id);
       const isMe = String(id) === String(authUser._id);
       return {
         id: String(id),
-        name: isMe ? "You" : profile?.fullName || resolveReactorName(id),
+        name: isMe
+          ? "You"
+          : profile?.fullName || resolveReactorName(id),
         avatar: profile?.profilePic || "",
         isMe,
       };
@@ -1341,41 +1335,27 @@ const ChatContainer = () => {
                             isMine ? "justify-end" : "justify-start"
                           }`}
                         >
-                          {reactionSummary.map((reaction) => {
-                            const reactorLabel = formatReactorNames(
-                              reaction.userIds || []
-                            );
-                            return (
-                              <button
-                                key={`${msg._id}-${reaction.emoji}`}
-                                type="button"
-                                title={`See who reacted ${reaction.emoji}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openReactionPeople(reaction);
-                                }}
-                                className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-xs leading-none transition ${
-                                  reaction.reactedByMe
-                                    ? "border-violet-400/60 bg-violet-500/25 text-white"
-                                    : "border-white/15 bg-black/30 text-white hover:bg-white/10"
-                                }`}
-                              >
-                                <span>{reaction.emoji}</span>
-                                {isGroupChat ? (
-                                  <span className="max-w-[110px] truncate text-[10px] text-gray-300">
-                                    {reactorLabel || reaction.count}
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] text-gray-300">
-                                    {reactorLabel ||
-                                      (reaction.count > 1
-                                        ? reaction.count
-                                        : "")}
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          })}
+                          {reactionSummary.map((reaction) => (
+                            <button
+                              key={`${msg._id}-${reaction.emoji}`}
+                              type="button"
+                              title={`See who reacted ${reaction.emoji}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openReactionPeople(reaction);
+                              }}
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs leading-none transition ${
+                                reaction.reactedByMe
+                                  ? "border-violet-400/60 bg-violet-500/25 text-white"
+                                  : "border-white/15 bg-black/30 text-white hover:bg-white/10"
+                              }`}
+                            >
+                              <span>{reaction.emoji}</span>
+                              <span className="text-[10px] text-gray-300">
+                                {reaction.count}
+                              </span>
+                            </button>
+                          ))}
                           {!isPending && (
                             <button
                               type="button"
