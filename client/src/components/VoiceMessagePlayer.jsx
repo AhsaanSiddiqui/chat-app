@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { formatDuration } from "../lib/utils";
 import toast from "react-hot-toast";
 
+const SPEED_OPTIONS = [1, 1.5, 2];
+
 const VoiceMessagePlayer = ({
   src,
   pending = false,
@@ -16,6 +18,7 @@ const VoiceMessagePlayer = ({
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(knownDuration);
   const [current, setCurrent] = useState(0);
+  const [speed, setSpeed] = useState(1);
 
   useEffect(() => {
     setPlaying(false);
@@ -23,6 +26,12 @@ const VoiceMessagePlayer = ({
     setDuration(knownDuration);
     playedAckRef.current = false;
   }, [src, knownDuration]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = speed;
+    }
+  }, [speed]);
 
   const ackPlayed = () => {
     if (playedAckRef.current || pending || !src) return;
@@ -43,6 +52,16 @@ const VoiceMessagePlayer = ({
     }
   };
 
+  const cycleSpeed = (e) => {
+    e.stopPropagation();
+    setSpeed((prev) => {
+      const idx = SPEED_OPTIONS.indexOf(prev);
+      const next = SPEED_OPTIONS[(idx + 1) % SPEED_OPTIONS.length];
+      if (audioRef.current) audioRef.current.playbackRate = next;
+      return next;
+    });
+  };
+
   const togglePlay = async () => {
     if (pending || !audioRef.current || !src) return;
     try {
@@ -59,6 +78,7 @@ const VoiceMessagePlayer = ({
         audioRef.current.currentTime = 0;
         setCurrent(0);
       }
+      audioRef.current.playbackRate = speed;
       await audioRef.current.play();
       setPlaying(true);
       resolveDuration();
@@ -75,6 +95,8 @@ const VoiceMessagePlayer = ({
     displayDuration > 0
       ? Math.min(100, (current / displayDuration) * 100)
       : 0;
+
+  const speedLabel = speed === 1 ? "1x" : `${speed}x`;
 
   return (
     <div className="relative min-w-[200px] max-w-[280px] px-3 py-2.5">
@@ -129,6 +151,7 @@ const VoiceMessagePlayer = ({
           onPause={() => setPlaying(false)}
           onPlay={() => {
             setPlaying(true);
+            if (audioRef.current) audioRef.current.playbackRate = speed;
             ackPlayed();
           }}
           onError={() => {
@@ -164,6 +187,17 @@ const VoiceMessagePlayer = ({
             </span>
           </div>
         </div>
+
+        {!pending && src && (
+          <button
+            type="button"
+            onClick={cycleSpeed}
+            title="Playback speed"
+            className="flex h-7 min-w-[2.25rem] flex-shrink-0 items-center justify-center rounded-full border border-white/20 bg-black/30 px-1.5 text-[10px] font-semibold text-white hover:bg-white/15"
+          >
+            {speedLabel}
+          </button>
+        )}
       </div>
     </div>
   );

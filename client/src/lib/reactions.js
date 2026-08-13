@@ -248,11 +248,21 @@ export function summarizeReactions(reactions = [], currentUserId = "") {
     if (!reaction?.emoji) return;
     const key = reaction.emoji;
     if (!map.has(key)) {
-      map.set(key, { emoji: key, count: 0, reactedByMe: false });
+      map.set(key, {
+        emoji: key,
+        count: 0,
+        reactedByMe: false,
+        userIds: [],
+      });
     }
     const entry = map.get(key);
     entry.count += 1;
-    if (String(reaction.userId) === String(currentUserId)) {
+    const uid =
+      typeof reaction.userId === "object"
+        ? String(reaction.userId?._id || "")
+        : String(reaction.userId || "");
+    if (uid) entry.userIds.push(uid);
+    if (uid && uid === String(currentUserId)) {
       entry.reactedByMe = true;
     }
   });

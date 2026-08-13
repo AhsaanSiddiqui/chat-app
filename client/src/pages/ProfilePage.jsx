@@ -33,9 +33,17 @@ const [bio, setBio] = useState(authUser?.bio || "");
   return (
     <div className="min-h-screen bg-cover bg-no-repeat flex items-center justify-center">
       <div
-        className="w-5/6 max-w-2xl backdrop-blur-2xl text-gray-300 border-2
+        className="relative w-5/6 max-w-2xl backdrop-blur-2xl text-gray-300 border-2
       border-gray-600 flex items-center justify-between max-sm:flex-col-reverse rounded-lg"
       >
+        <button
+          type="button"
+          title="Close"
+          onClick={() => navigate("/")}
+          className="absolute right-3 top-3 z-10 rounded-full px-2.5 py-1 text-lg text-gray-400 hover:bg-white/10 hover:text-white"
+        >
+          ✕
+        </button>
         <form onSubmit={handleSubmit} className="flex flex-col gap-5 p-10 flex-1">
           <h3 className="text-lg">Profile details</h3>
           <label
@@ -71,13 +79,22 @@ const [bio, setBio] = useState(authUser?.bio || "");
             placeholder="provide short bio..."
             required
           ></textarea>
-           <button
-          type="submit"
-          className="bg-gradient-to-r from-purple-400 to-violet-600
-         text-white rounded-full p-2 text-lg cursor-pointer"
-        >
-          Save
-        </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="rounded-full border border-gray-500 p-2 text-lg text-gray-300 hover:bg-white/10"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex-1 bg-gradient-to-r from-purple-400 to-violet-600
+             text-white rounded-full p-2 text-lg cursor-pointer"
+            >
+              Save
+            </button>
+          </div>
         </form>
         <img className={`max-w-44 aspect-square rounded-full max-10 max-sm:mt-10 ${selectedImg && "rounded-full"}`} src={authUser?.profilePic || assets.logo_icon} alt="" />
       </div>
