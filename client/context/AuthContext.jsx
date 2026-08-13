@@ -263,46 +263,63 @@ export const AuthProvider = ({ children }) => {
   };
 
   const connectSocket = (userData) => {
-    if (!userData || !userData._id) return;
+    if (!userData?._id) return;
 
-    setSocket((prev) => {
-      if (prev?.connected) return prev;
+    const existing = socketRef.current;
+    if (existing) {
+      // Keep an already-live or still-connecting socket (avoid Strict Mode / double-login races)
+      if (existing.connected || existing.active) {
+        return;
+      }
+      existing.removeAllListeners();
+      existing.disconnect();
+      socketRef.current = null;
+    }
 
-      if (prev) prev.disconnect();
-
-      const newSocket = io(backendUrl, {
-        query: {
-          userId: userData._id,
-        },
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 1000,
-      });
-
-      newSocket.on("connect", () => {
-        console.log("Socket Connected");
-      });
-
-      newSocket.on("getOnlineUsers", (userIds) => {
-        setOnlineUsers(userIds);
-      });
-
-      return newSocket;
+    const newSocket = io(backendUrl, {
+      query: {
+        userId: String(userData._id),
+      },
+      transports: ["websocket", "polling"],
+      upgrade: true,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
     });
+
+    newSocket.on("connect", () => {
+      console.log("Socket Connected", newSocket.id);
+    });
+
+    newSocket.on("disconnect", (reason) => {
+      console.log("Socket Disconnected", reason);
+    });
+
+    newSocket.on("connect_error", (err) => {
+      console.log("Socket connect_error", err?.message || err);
+    });
+
+    newSocket.on("getOnlineUsers", (userIds) => {
+      setOnlineUsers(Array.isArray(userIds) ? userIds.map(String) : []);
+    });
+
+    socketRef.current = newSocket;
+    setSocket(newSocket);
   };
 
   const ensureSocketConnected = () => {
     const user = authUserRef.current;
+    if (!user?._id) return;
+
     const current = socketRef.current;
-
-    if (!user) return;
-
     if (!current) {
       connectSocket(user);
       return;
     }
 
-    if (!current.connected) {
+    if (!current.connected && !current.active) {
       current.connect();
     }
   };

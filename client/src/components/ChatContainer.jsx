@@ -906,6 +906,8 @@ const ChatContainer = () => {
     setIsRefreshing(true);
     try {
       ensureSocketConnected?.();
+      // Give a moment for socket reconnect if it was dropped
+      await new Promise((resolve) => setTimeout(resolve, 250));
       await Promise.all([getUsers?.(), getGroups?.()]);
       if (selectedGroup?._id) {
         await getGroupMessages(selectedGroup._id);

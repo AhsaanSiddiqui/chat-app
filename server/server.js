@@ -23,8 +23,10 @@ export const userSocketMap = {}; // {userId; socketId }
 
 // Socket.io connection handler
 io.on("connection", (socket)=>{
-    const userId = socket.handshake.query.userId;
-    console.log("User Connected", userId);
+    const userId = socket.handshake.query.userId
+        ? String(socket.handshake.query.userId)
+        : "";
+    console.log("User Connected", userId, socket.id);
 
     if (userId) userSocketMap[userId] = socket.id;
 
@@ -112,10 +114,10 @@ io.on("connection", (socket)=>{
     });
 
     socket.on("disconnect", ()=>{
-        console.log("User Disconnected", userId);
+        console.log("User Disconnected", userId, socket.id);
         // Only remove if this socket is still the active one for the user
         // (avoids wiping a newer connection on reconnect/Strict Mode remount)
-        if (userSocketMap[userId] === socket.id) {
+        if (userId && userSocketMap[userId] === socket.id) {
             delete userSocketMap[userId];
             io.emit("getOnlineUsers", Object.keys(userSocketMap))
         }

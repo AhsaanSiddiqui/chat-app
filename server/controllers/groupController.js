@@ -14,10 +14,15 @@ import { applyOneReactionPerUser } from "../lib/reactions.js";
 import { io, userSocketMap } from "../server.js";
 
 const emitToGroupMembers = (memberIds, event, payload, exceptUserId = null) => {
+  const safePayload =
+    payload && typeof payload.toObject === "function"
+      ? payload.toObject()
+      : payload;
+
   memberIds.forEach((memberId) => {
     if (exceptUserId && String(memberId) === String(exceptUserId)) return;
     const socketId = userSocketMap[String(memberId)];
-    if (socketId) io.to(socketId).emit(event, payload);
+    if (socketId) io.to(socketId).emit(event, safePayload);
   });
 };
 

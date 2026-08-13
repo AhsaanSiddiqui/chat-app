@@ -1252,6 +1252,31 @@ export const ChatProvider = ({ children }) => {
     socket.on("groupCreated", onGroupCreated);
     socket.on("groupUpdated", onGroupUpdated);
 
+    const syncOpenChat = () => {
+      const selectedId = selectedUserRef.current?._id;
+      const selectedGroupId = selectedGroupRef.current?._id;
+      if (selectedId) {
+        delete messageCacheRef.current[selectedId];
+        getMessages(selectedId);
+      }
+      if (selectedGroupId) {
+        delete groupMessageCacheRef.current[selectedGroupId];
+        getGroupMessages(selectedGroupId);
+      }
+    };
+
+    const onConnect = () => {
+      syncOpenChat();
+      getUsers();
+      getGroups();
+    };
+
+    socket.on("connect", onConnect);
+    // If we mounted onto an already-connected socket, still make sure we're live
+    if (socket.connected) {
+      // no immediate full refetch on every listener remount — only on true reconnects
+    }
+
     return () => {
       socket.off("newMessage", onNewMessage);
       socket.off("newGroupMessage", onNewGroupMessage);
@@ -1269,6 +1294,7 @@ export const ChatProvider = ({ children }) => {
       socket.off("groupMessagesPlayed", onGroupMessagesPlayed);
       socket.off("groupCreated", onGroupCreated);
       socket.off("groupUpdated", onGroupUpdated);
+      socket.off("connect", onConnect);
     };
   }, [socket, axios, authUser?._id]);
 

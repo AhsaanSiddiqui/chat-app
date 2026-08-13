@@ -385,7 +385,11 @@ export const sendMessage = async (req, res) => {
         // Emit the new message to the receiver's socket 
         const receiverSocketId = userSocketMap[String(receiverId)];
         if (receiverSocketId) {
-            io.to(receiverSocketId).emit("newMessage", newMessage);
+            const payload =
+                typeof newMessage.toObject === "function"
+                    ? newMessage.toObject()
+                    : newMessage;
+            io.to(receiverSocketId).emit("newMessage", payload);
             // Online receiver ⇒ delivered once pushed to their socket
             const deliveredAt = new Date();
             const deliveredMessage = await Message.findByIdAndUpdate(
@@ -401,7 +405,10 @@ export const sendMessage = async (req, res) => {
                     deliveredAt,
                 });
             }
-            return res.json({ success: true, newMessage: deliveredMessage });
+            return res.json({
+                success: true,
+                newMessage: deliveredMessage || newMessage,
+            });
         }
 
         res.json({ success: true, newMessage })
