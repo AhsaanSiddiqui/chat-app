@@ -28,6 +28,7 @@ import EmojiReactionPicker from "./EmojiReactionPicker";
 import ConfirmModal from "./ConfirmModal";
 import LinkifiedText from "./LinkifiedText";
 import VoiceMessagePlayer from "./VoiceMessagePlayer";
+import MessageInfoModal from "./MessageInfoModal";
 
 const resolveSenderId = (senderId) => {
   if (!senderId) return "";
@@ -101,6 +102,7 @@ const FileAttachmentCard = ({ attachment, pending, canRemove, onRemove }) => {
 const ChatContainer = () => {
   const {
     messages,
+    users,
     selectedUser,
     selectedGroup,
     setSelectedUser,
@@ -143,6 +145,7 @@ const ChatContainer = () => {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [infoMessage, setInfoMessage] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
@@ -374,11 +377,22 @@ const ChatContainer = () => {
   const findMember = (userId) => {
     if (!userId) return null;
     if (String(userId) === String(authUser._id)) return authUser;
-    return (
-      selectedGroup?.members?.find(
-        (m) => resolveSenderId(m) === String(userId)
-      ) || null
+    const fromGroup = selectedGroup?.members?.find(
+      (m) => resolveSenderId(m) === String(userId)
     );
+    if (fromGroup && typeof fromGroup === "object" && fromGroup.fullName) {
+      return fromGroup;
+    }
+    return (
+      users?.find((u) => String(u._id) === String(userId)) ||
+      (fromGroup && typeof fromGroup === "object" ? fromGroup : null)
+    );
+  };
+
+  const openMessageInfo = (msg) => {
+    if (!msg || msg.isDeleted || String(msg._id).startsWith("temp-")) return;
+    setMenuOpenId(null);
+    setInfoMessage(msg);
   };
 
   const getSenderProfile = (msg) => {
@@ -1088,6 +1102,15 @@ const ChatContainer = () => {
                               >
                                 Reply
                               </button>
+                              {isMine && !isPending && (
+                                <button
+                                  type="button"
+                                  className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-gray-800"
+                                  onClick={() => openMessageInfo(msg)}
+                                >
+                                  Info
+                                </button>
+                              )}
                               {canEdit && (
                                 <button
                                   type="button"
@@ -1308,12 +1331,14 @@ const ChatContainer = () => {
                         )}
                         <span>{formatMessageTime(msg.createdAt)}</span>
                         {isMine && !msg.isDeleted && (
-                          <span
-                            className={`ml-0.5 tracking-tighter ${receiptClass}`}
-                            title={receiptTitle}
+                          <button
+                            type="button"
+                            className={`ml-0.5 tracking-tighter ${receiptClass} hover:opacity-80`}
+                            title={`${receiptTitle} · Tap for info`}
+                            onClick={() => openMessageInfo(msg)}
                           >
                             {receiptTicks}
-                          </span>
+                          </button>
                         )}
                       </p>
 
@@ -1591,6 +1616,24 @@ const ChatContainer = () => {
         loading={confirmLoading}
         onCancel={closeConfirm}
         onConfirm={runConfirm}
+      />
+
+      <MessageInfoModal
+        open={!!infoMessage}
+        message={
+          infoMessage
+            ? messages.find((m) => String(m._id) === String(infoMessage._id)) ||
+              infoMessage
+            : null
+        }
+        isGroup={isGroupChat}
+        isVoice={
+          !!infoMessage &&
+          getMessageAttachments(infoMessage).some((f) => f.kind === "audio")
+        }
+        peerName={selectedUser?.fullName}
+        resolveUser={findMember}
+        onClose={() => setInfoMessage(null)}
       />
     </div>
   );
