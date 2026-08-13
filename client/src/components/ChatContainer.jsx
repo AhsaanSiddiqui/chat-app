@@ -29,6 +29,7 @@ import ConfirmModal from "./ConfirmModal";
 import LinkifiedText from "./LinkifiedText";
 import VoiceMessagePlayer from "./VoiceMessagePlayer";
 import MessageInfoModal from "./MessageInfoModal";
+import ReactionPeopleModal from "./ReactionPeopleModal";
 
 const resolveSenderId = (senderId) => {
   if (!senderId) return "";
@@ -146,6 +147,7 @@ const ChatContainer = () => {
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [infoMessage, setInfoMessage] = useState(null);
+  const [reactionPeople, setReactionPeople] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
@@ -439,12 +441,42 @@ const ChatContainer = () => {
     return users?.find((u) => String(u._id) === String(userId))?.fullName || "User";
   };
 
+  const resolveReactorProfile = (userId) => {
+    if (!userId) return null;
+    if (String(userId) === String(authUser._id)) return authUser;
+    if (isGroupChat) return findMember(userId);
+    if (selectedUser && String(userId) === String(selectedUser._id)) {
+      return selectedUser;
+    }
+    return users?.find((u) => String(u._id) === String(userId)) || null;
+  };
+
   const formatReactorNames = (userIds = []) => {
     const names = userIds.map((id) => resolveReactorName(id));
     if (!names.length) return "";
     if (names.length === 1) return names[0];
     if (names.length === 2) return `${names[0]}, ${names[1]}`;
     return `${names[0]}, ${names[1]} +${names.length - 2}`;
+  };
+
+  const openReactionPeople = (reaction) => {
+    const people = (reaction.userIds || []).map((id) => {
+      const profile = resolveReactorProfile(id);
+      const isMe = String(id) === String(authUser._id);
+      return {
+        id: String(id),
+        name: isMe ? "You" : profile?.fullName || resolveReactorName(id),
+        avatar: profile?.profilePic || "",
+        isMe,
+      };
+    });
+    setMenuOpenId(null);
+    setReactMenuId(null);
+    setReactAnchorEl(null);
+    setReactionPeople({
+      emoji: reaction.emoji,
+      people,
+    });
   };
 
   const groupTypingLabel = () => {
@@ -1317,16 +1349,11 @@ const ChatContainer = () => {
                               <button
                                 key={`${msg._id}-${reaction.emoji}`}
                                 type="button"
-                                title={
-                                  reactorLabel
-                                    ? `${reaction.emoji} ${reactorLabel}`
-                                    : reaction.reactedByMe
-                                      ? "Remove your reaction"
-                                      : "Add reaction"
-                                }
-                                onClick={() =>
-                                  handleReact(msg, reaction.emoji)
-                                }
+                                title={`See who reacted ${reaction.emoji}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openReactionPeople(reaction);
+                                }}
                                 className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-xs leading-none transition ${
                                   reaction.reactedByMe
                                     ? "border-violet-400/60 bg-violet-500/25 text-white"
@@ -1339,11 +1366,12 @@ const ChatContainer = () => {
                                     {reactorLabel || reaction.count}
                                   </span>
                                 ) : (
-                                  reaction.count > 1 && (
-                                    <span className="text-[10px] text-gray-300">
-                                      {reaction.count}
-                                    </span>
-                                  )
+                                  <span className="text-[10px] text-gray-300">
+                                    {reactorLabel ||
+                                      (reaction.count > 1
+                                        ? reaction.count
+                                        : "")}
+                                  </span>
                                 )}
                               </button>
                             );
@@ -1351,13 +1379,10 @@ const ChatContainer = () => {
                           {!isPending && (
                             <button
                               type="button"
-                              title="Add reaction"
+                              title="Add or change reaction"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                const btn = e.currentTarget
-                                  .closest(".group")
-                                  ?.querySelector('[title="React"]');
-                                openReactionPicker(msg._id, btn || e.currentTarget);
+                                openReactionPicker(msg._id, e.currentTarget);
                               }}
                               className="rounded-full border border-white/15 bg-black/30 px-2 py-0.5 text-xs text-gray-300 hover:bg-white/10"
                             >
@@ -1685,6 +1710,13 @@ const ChatContainer = () => {
         }
         resolveUser={findMember}
         onClose={() => setInfoMessage(null)}
+      />
+
+      <ReactionPeopleModal
+        open={!!reactionPeople}
+        emoji={reactionPeople?.emoji}
+        people={reactionPeople?.people || []}
+        onClose={() => setReactionPeople(null)}
       />
     </div>
   );

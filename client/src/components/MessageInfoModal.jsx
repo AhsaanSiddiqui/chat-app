@@ -78,7 +78,7 @@ const MessageInfoModal = ({
   const renderPeople = (ids, timeForPeer) => {
     if (!ids.length) return null;
     return (
-      <div className="max-h-40 overflow-y-auto">
+      <div>
         {ids.map((id) => {
           if (id === "peer") {
             return (
@@ -108,13 +108,13 @@ const MessageInfoModal = ({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#15151d] text-white shadow-xl"
+        className="flex max-h-[min(80vh,560px)] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#15151d] text-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="message-info-title"
       >
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-white/10 px-5 py-4">
           <h2 id="message-info-title" className="text-lg font-semibold">
             Message info
           </h2>
@@ -127,7 +127,7 @@ const MessageInfoModal = ({
           </button>
         </div>
 
-        <div className="space-y-4 px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
           <div className="rounded-xl bg-white/5 px-3 py-2 text-sm text-gray-300">
             <p>
               Sent · {formatMessageTime(message.createdAt) || "—"}
