@@ -127,6 +127,8 @@ const ChatContainer = () => {
   const { startCall } = useContext(CallContext);
 
   const scrollEnd = useRef(null);
+  const messagesScrollRef = useRef(null);
+  const nearBottomRef = useRef(true);
   const inputRef = useRef(null);
   const pendingAttachmentsRef = useRef([]);
   const mediaRecorderRef = useRef(null);
@@ -148,6 +150,7 @@ const ChatContainer = () => {
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [infoMessage, setInfoMessage] = useState(null);
   const [reactionPeople, setReactionPeople] = useState(null);
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
@@ -218,13 +221,43 @@ const ChatContainer = () => {
     recordedChunksRef.current = [];
     setIsRecording(false);
     setRecordingSeconds(0);
+    nearBottomRef.current = true;
+    setShowScrollToLatest(false);
     stopTyping();
     setTimeout(() => inputRef.current?.focus(), 0);
   }, [selectedUser?._id, selectedGroup?._id]);
 
+  const isNearBottom = (el, threshold = 120) => {
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+  };
+
+  const updateScrollToLatestVisibility = () => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    const near = isNearBottom(el);
+    nearBottomRef.current = near;
+    setShowScrollToLatest(!near);
+  };
+
+  const scrollToLatest = (behavior = "smooth") => {
+    const el = messagesScrollRef.current;
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior });
+    } else {
+      scrollEnd.current?.scrollIntoView({ behavior });
+    }
+    nearBottomRef.current = true;
+    setShowScrollToLatest(false);
+  };
+
   useEffect(() => {
-    if (scrollEnd.current && !messagesLoading) {
-      scrollEnd.current.scrollIntoView({ behavior: "auto" });
+    if (messagesLoading) return;
+    // Jump to bottom when opening a chat or when already near the latest messages
+    if (nearBottomRef.current) {
+      scrollToLatest("auto");
+    } else {
+      updateScrollToLatestVisibility();
     }
   }, [
     messages,
@@ -234,6 +267,15 @@ const ChatContainer = () => {
     selectedUser?._id,
     selectedGroup?._id,
   ]);
+
+  useEffect(() => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    const onScroll = () => updateScrollToLatestVisibility();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    updateScrollToLatestVisibility();
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [selectedUser?._id, selectedGroup?._id, messagesLoading]);
 
   useEffect(() => {
     const closeMenu = () => {
@@ -895,7 +937,12 @@ const ChatContainer = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 px-8 space-y-3">
+      <div className="relative flex-1 min-h-0">
+        <div
+          ref={messagesScrollRef}
+          className="h-full overflow-y-auto p-4 px-8 space-y-3"
+          onScroll={updateScrollToLatestVisibility}
+        >
         {messagesLoading && messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-sm text-gray-400">Loading messages...</p>
@@ -1437,6 +1484,18 @@ const ChatContainer = () => {
               {isGroupChat ? groupTypingLabel() : "typing..."}
             </div>
           </div>
+        )}
+        </div>
+
+        {showScrollToLatest && (
+          <button
+            type="button"
+            title="Latest message"
+            onClick={() => scrollToLatest("smooth")}
+            className="absolute bottom-3 right-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-[#1b1b24]/95 text-white shadow-lg backdrop-blur-sm hover:bg-violet-600/90"
+          >
+            <span className="text-lg leading-none">↓</span>
+          </button>
         )}
       </div>
 
