@@ -7,6 +7,8 @@ import {
   formatFileSize,
   formatMessageTime,
   formatSeenTime,
+  formatPlayedTime,
+  formatDeliveredTime,
   getAttachmentKind,
   getMessageAttachments,
   isAllowedAttachmentFile,
@@ -107,6 +109,7 @@ const ChatContainer = () => {
     deleteMessage,
     deleteAttachment,
     reactToMessage,
+    markMessagePlayed,
     getMessages,
     getGroupMessages,
     isOtherUserTyping,
@@ -838,13 +841,13 @@ const ChatContainer = () => {
         ) : (
           <div className="flex flex-col gap-3">
             {(() => {
-              const lastSeenOwnId = !isGroupChat
+              const lastStatusOwnId = !isGroupChat
                 ? [...messages]
                     .reverse()
                     .find(
                       (m) =>
                         resolveSenderId(m.senderId) === String(authUser._id) &&
-                        m.seen &&
+                        (m.played || m.seen) &&
                         !m.isDeleted &&
                         !m.pending &&
                         !String(m._id).startsWith("temp-")
@@ -858,15 +861,6 @@ const ChatContainer = () => {
                   !!msg.pending || String(msg._id).startsWith("temp-");
                 const sender = getSenderProfile(msg);
                 const avatarSrc = sender?.profilePic || assets.avatar_icon;
-                const showSeenTime =
-                  !isGroupChat &&
-                  isMine &&
-                  msg.seen &&
-                  msg.seenAt &&
-                  String(msg._id) === String(lastSeenOwnId);
-                const groupSeenCount = Array.isArray(msg.seenBy)
-                  ? msg.seenBy.length
-                  : 0;
                 const messageFiles = getMessageAttachments(msg);
                 const imageFiles = messageFiles.filter(
                   (file) => file.kind === "image" && (file.url || isPending)
@@ -877,6 +871,81 @@ const ChatContainer = () => {
                 const otherFiles = messageFiles.filter(
                   (file) => file.kind !== "image" && file.kind !== "audio"
                 );
+                const isVoiceMessage = audioFiles.length > 0;
+                const showStatusTime =
+                  !isGroupChat &&
+                  isMine &&
+                  (msg.played || msg.seen) &&
+                  String(msg._id) === String(lastStatusOwnId);
+                const statusTimeLabel = msg.played
+                  ? formatPlayedTime(msg.playedAt || msg.seenAt, msg.createdAt)
+                  : formatSeenTime(msg.seenAt, msg.createdAt);
+
+                const groupDeliveredCount = Array.isArray(msg.deliveredTo)
+                  ? msg.deliveredTo.filter(
+                      (id) => String(id) !== String(senderId)
+                    ).length
+                  : 0;
+                const groupSeenCount = Array.isArray(msg.seenBy)
+                  ? msg.seenBy.filter((id) => String(id) !== String(senderId))
+                      .length
+                  : 0;
+                const groupPlayedCount = Array.isArray(msg.playedBy)
+                  ? msg.playedBy.filter(
+                      (id) => String(id) !== String(senderId)
+                    ).length
+                  : 0;
+
+                let receiptTicks = "✓";
+                let receiptClass = "text-gray-400";
+                let receiptTitle = "Sent";
+
+                if (isPending) {
+                  receiptTicks = "◷";
+                  receiptClass = "text-gray-500";
+                  receiptTitle = "Sending...";
+                } else if (isGroupChat) {
+                  if (isVoiceMessage && groupPlayedCount > 0) {
+                    receiptTicks = "✓✓";
+                    receiptClass = "text-sky-400";
+                    receiptTitle = `Played by ${groupPlayedCount}`;
+                  } else if (groupSeenCount > 0) {
+                    receiptTicks = "✓✓";
+                    receiptClass = "text-sky-400";
+                    receiptTitle = `Seen by ${groupSeenCount}`;
+                  } else if (groupDeliveredCount > 0) {
+                    receiptTicks = "✓✓";
+                    receiptClass = "text-gray-400";
+                    receiptTitle = `Delivered to ${groupDeliveredCount}`;
+                  } else {
+                    receiptTicks = "✓";
+                    receiptClass = "text-gray-400";
+                    receiptTitle = "Sent";
+                  }
+                } else if (isVoiceMessage && msg.played) {
+                  receiptTicks = "✓✓";
+                  receiptClass = "text-sky-400";
+                  receiptTitle = formatPlayedTime(
+                    msg.playedAt,
+                    msg.createdAt
+                  ) || "Played";
+                } else if (msg.seen) {
+                  receiptTicks = "✓✓";
+                  receiptClass = "text-sky-400";
+                  receiptTitle =
+                    formatSeenTime(msg.seenAt, msg.createdAt) || "Seen";
+                } else if (msg.delivered) {
+                  receiptTicks = "✓✓";
+                  receiptClass = "text-gray-400";
+                  receiptTitle =
+                    formatDeliveredTime(msg.deliveredAt, msg.createdAt) ||
+                    "Delivered";
+                } else {
+                  receiptTicks = "✓";
+                  receiptClass = "text-gray-400";
+                  receiptTitle = "Sent";
+                }
+
                 const canEdit =
                   isMine &&
                   !msg.image &&
@@ -1117,6 +1186,11 @@ const ChatContainer = () => {
                               onRemove={() =>
                                 handleDeleteAttachment(msg, file)
                               }
+                              onPlayed={
+                                !isMine && !isPending
+                                  ? () => markMessagePlayed(msg._id)
+                                  : undefined
+                              }
                             />
                           ))}
 
@@ -1200,53 +1274,19 @@ const ChatContainer = () => {
                           <span className="italic">edited</span>
                         )}
                         <span>{formatMessageTime(msg.createdAt)}</span>
-                        {isMine && !msg.isDeleted && !isGroupChat && (
+                        {isMine && !msg.isDeleted && (
                           <span
-                            className={`ml-0.5 tracking-tighter ${
-                              isPending
-                                ? "text-gray-500"
-                                : msg.seen
-                                  ? "text-sky-400"
-                                  : "text-gray-400"
-                            }`}
-                            title={
-                              isPending
-                                ? "Sending..."
-                                : msg.seen
-                                  ? formatSeenTime(msg.seenAt, msg.createdAt)
-                                  : "Sent"
-                            }
+                            className={`ml-0.5 tracking-tighter ${receiptClass}`}
+                            title={receiptTitle}
                           >
-                            {isPending ? "◷" : msg.seen ? "✓✓" : "✓"}
-                          </span>
-                        )}
-                        {isMine && !msg.isDeleted && isGroupChat && (
-                          <span
-                            className={`ml-0.5 tracking-tighter ${
-                              isPending
-                                ? "text-gray-500"
-                                : groupSeenCount > 1
-                                  ? "text-sky-400"
-                                  : "text-gray-400"
-                            }`}
-                            title={
-                              isPending
-                                ? "Sending..."
-                                : `Seen by ${Math.max(groupSeenCount - 1, 0)}`
-                            }
-                          >
-                            {isPending
-                              ? "◷"
-                              : groupSeenCount > 1
-                                ? "✓✓"
-                                : "✓"}
+                            {receiptTicks}
                           </span>
                         )}
                       </p>
 
-                      {showSeenTime && (
+                      {showStatusTime && statusTimeLabel && (
                         <p className="text-[10px] text-sky-400 mt-0.5 text-right">
-                          {formatSeenTime(msg.seenAt, msg.createdAt)}
+                          {statusTimeLabel}
                         </p>
                       )}
                     </div>

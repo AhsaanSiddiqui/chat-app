@@ -8,7 +8,9 @@ const VoiceMessagePlayer = ({
   durationSec = 0,
   canRemove = false,
   onRemove,
+  onPlayed,
 }) => {
+  const playedAckRef = useRef(false);
   const audioRef = useRef(null);
   const knownDuration = Number(durationSec) > 0 ? Number(durationSec) : 0;
   const [playing, setPlaying] = useState(false);
@@ -19,7 +21,14 @@ const VoiceMessagePlayer = ({
     setPlaying(false);
     setCurrent(0);
     setDuration(knownDuration);
+    playedAckRef.current = false;
   }, [src, knownDuration]);
+
+  const ackPlayed = () => {
+    if (playedAckRef.current || pending || !src) return;
+    playedAckRef.current = true;
+    onPlayed?.();
+  };
 
   if (!src && !pending) return null;
 
@@ -53,6 +62,7 @@ const VoiceMessagePlayer = ({
       await audioRef.current.play();
       setPlaying(true);
       resolveDuration();
+      ackPlayed();
     } catch (error) {
       setPlaying(false);
       toast.error("Could not play voice message");
@@ -117,7 +127,10 @@ const VoiceMessagePlayer = ({
             if (knownDuration > 0) setDuration(knownDuration);
           }}
           onPause={() => setPlaying(false)}
-          onPlay={() => setPlaying(true)}
+          onPlay={() => {
+            setPlaying(true);
+            ackPlayed();
+          }}
           onError={() => {
             setPlaying(false);
           }}

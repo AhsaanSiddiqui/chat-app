@@ -458,10 +458,35 @@ export const getGroupMessages = async (req, res) => {
       const ids = unseen.map((m) => m._id);
       await GroupMessage.updateMany(
         { _id: { $in: ids } },
-        { $addToSet: { seenBy: userId } }
+        { $addToSet: { seenBy: userId, deliveredTo: userId } }
       );
 
+      emitToGroupMembers(group.members, "groupMessagesDelivered", {
+        groupId: String(groupId),
+        userId: String(userId),
+        messageIds: ids.map(String),
+      });
       emitToGroupMembers(group.members, "groupMessagesSeen", {
+        groupId: String(groupId),
+        userId: String(userId),
+        messageIds: ids.map(String),
+      });
+    }
+
+    const undelivered = await GroupMessage.find({
+      groupId,
+      senderId: { $ne: userId },
+      deliveredTo: { $nin: [userId] },
+      messageType: { $ne: "system" },
+    }).select("_id");
+
+    if (undelivered.length) {
+      const ids = undelivered.map((m) => m._id);
+      await GroupMessage.updateMany(
+        { _id: { $in: ids } },
+        { $addToSet: { deliveredTo: userId } }
+      );
+      emitToGroupMembers(group.members, "groupMessagesDelivered", {
         groupId: String(groupId),
         userId: String(userId),
         messageIds: ids.map(String),
@@ -554,6 +579,7 @@ export const sendGroupMessage = async (req, res) => {
           }
         : {}),
       seenBy: [senderId],
+      deliveredTo: [senderId],
       ...(replyData ? { replyTo: replyData } : {}),
     });
 
@@ -565,12 +591,124 @@ export const sendGroupMessage = async (req, res) => {
     group.updatedAt = new Date();
     await group.save();
 
+    // Mark delivered for currently online members (except sender)
+    const onlineMemberIds = group.members
+      .map(String)
+      .filter((id) => id !== String(senderId) && userSocketMap[id]);
+
+    if (onlineMemberIds.length) {
+      await GroupMessage.findByIdAndUpdate(message._id, {
+        $addToSet: { deliveredTo: { $each: onlineMemberIds } },
+      });
+      const refreshed = await GroupMessage.findById(message._id).populate(
+        "senderId",
+        "-password"
+      );
+      emitToGroupMembers(group.members, "newGroupMessage", refreshed, senderId);
+      emitToGroupMembers(group.members, "groupMessagesDelivered", {
+        groupId: String(groupId),
+        userId: "online-batch",
+        messageIds: [String(message._id)],
+        deliveredTo: refreshed.deliveredTo,
+      });
+      return res.json({ success: true, newMessage: refreshed });
+    }
+
     emitToGroupMembers(group.members, "newGroupMessage", populated, senderId);
 
     res.json({ success: true, newMessage: populated });
   } catch (error) {
     await cleanupUploadedFiles(req.files);
     if (req.file?.path) await removeTempFile(req.file.path);
+    console.log(error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+export const markGroupMessageDelivered = async (req, res) => {
+  try {
+    const message = await GroupMessage.findById(req.params.messageId);
+    if (!message) {
+      return res.json({ success: false, message: "Message not found" });
+    }
+
+    const group = await Group.findById(message.groupId);
+    if (!group || !ensureMember(group, req.user._id)) {
+      return res.json({ success: false, message: "Not a group member" });
+    }
+
+    if (String(message.senderId) === String(req.user._id)) {
+      return res.json({ success: true, message });
+    }
+
+    const updated = await GroupMessage.findByIdAndUpdate(
+      message._id,
+      { $addToSet: { deliveredTo: req.user._id } },
+      { new: true }
+    ).populate("senderId", "-password");
+
+    emitToGroupMembers(group.members, "groupMessagesDelivered", {
+      groupId: String(message.groupId),
+      userId: String(req.user._id),
+      messageIds: [String(message._id)],
+      deliveredTo: updated.deliveredTo,
+    });
+
+    res.json({ success: true, message: updated });
+  } catch (error) {
+    console.log(error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+export const markGroupMessagePlayed = async (req, res) => {
+  try {
+    const message = await GroupMessage.findById(req.params.messageId);
+    if (!message) {
+      return res.json({ success: false, message: "Message not found" });
+    }
+
+    const group = await Group.findById(message.groupId);
+    if (!group || !ensureMember(group, req.user._id)) {
+      return res.json({ success: false, message: "Not a group member" });
+    }
+
+    const hasAudio =
+      (message.attachments || []).some((a) => a.kind === "audio") ||
+      message.attachment?.kind === "audio";
+    if (!hasAudio) {
+      return res.json({
+        success: false,
+        message: "Only voice messages can be marked played",
+      });
+    }
+
+    const updated = await GroupMessage.findByIdAndUpdate(
+      message._id,
+      {
+        $addToSet: {
+          playedBy: req.user._id,
+          seenBy: req.user._id,
+          deliveredTo: req.user._id,
+        },
+      },
+      { new: true }
+    ).populate("senderId", "-password");
+
+    emitToGroupMembers(group.members, "groupMessagesPlayed", {
+      groupId: String(message.groupId),
+      userId: String(req.user._id),
+      messageIds: [String(message._id)],
+      playedBy: updated.playedBy,
+    });
+    emitToGroupMembers(group.members, "groupMessagesSeen", {
+      groupId: String(message.groupId),
+      userId: String(req.user._id),
+      messageIds: [String(message._id)],
+    });
+
+    res.json({ success: true, message: updated });
+  } catch (error) {
     console.log(error.message);
     res.json({ success: false, message: error.message });
   }

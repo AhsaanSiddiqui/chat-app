@@ -77,15 +77,48 @@ export const getMessages = async (req, res) => {
             const seenAt = new Date();
             await Message.updateMany(
                 { _id: { $in: ids } },
-                { seen: true, seenAt }
+                {
+                    seen: true,
+                    seenAt,
+                    delivered: true,
+                    deliveredAt: seenAt,
+                }
             );
 
             const senderSocketId = userSocketMap[String(selectedUserId)];
             if (senderSocketId) {
+                io.to(senderSocketId).emit("messagesDelivered", {
+                    chatUserId: String(myId),
+                    messageIds: ids.map(String),
+                    deliveredAt: seenAt,
+                });
                 io.to(senderSocketId).emit("messagesSeen", {
                     chatUserId: String(myId),
                     messageIds: ids.map(String),
                     seenAt,
+                });
+            }
+        }
+
+        // Also mark any undelivered as delivered when chat is opened
+        const undelivered = await Message.find({
+            senderId: selectedUserId,
+            receiverId: myId,
+            delivered: false,
+        }).select("_id");
+        if (undelivered.length) {
+            const ids = undelivered.map((m) => m._id);
+            const deliveredAt = new Date();
+            await Message.updateMany(
+                { _id: { $in: ids } },
+                { delivered: true, deliveredAt }
+            );
+            const senderSocketId = userSocketMap[String(selectedUserId)];
+            if (senderSocketId) {
+                io.to(senderSocketId).emit("messagesDelivered", {
+                    chatUserId: String(myId),
+                    messageIds: ids.map(String),
+                    deliveredAt,
                 });
             }
         }
@@ -96,7 +129,9 @@ export const getMessages = async (req, res) => {
                 String(obj.senderId) === String(selectedUserId) &&
                 String(obj.receiverId) === String(myId)
             ) {
+                obj.delivered = true;
                 obj.seen = true;
+                if (!obj.deliveredAt) obj.deliveredAt = new Date();
                 if (!obj.seenAt) obj.seenAt = new Date();
             }
             return obj;
@@ -119,19 +154,35 @@ export const markMessageAsSeen = async (req, res) => {
             return res.json({ success: false, message: "Message not found" });
         }
 
-        let message = existing;
-        if (!existing.seen) {
-            const seenAt = new Date();
-            message = await Message.findByIdAndUpdate(
-                id,
-                { seen: true, seenAt },
-                { new: true }
-            );
+        if (String(existing.receiverId) !== String(req.user._id)) {
+            return res.json({ success: false, message: "Not allowed" });
         }
 
-        if (message) {
-            const senderSocketId = userSocketMap[String(message.senderId)];
-            if (senderSocketId) {
+        const now = new Date();
+        const updates = {};
+        if (!existing.delivered) {
+            updates.delivered = true;
+            updates.deliveredAt = existing.deliveredAt || now;
+        }
+        if (!existing.seen) {
+            updates.seen = true;
+            updates.seenAt = now;
+        }
+
+        const message = Object.keys(updates).length
+            ? await Message.findByIdAndUpdate(id, updates, { new: true })
+            : existing;
+
+        const senderSocketId = userSocketMap[String(message.senderId)];
+        if (senderSocketId) {
+            if (updates.delivered) {
+                io.to(senderSocketId).emit("messagesDelivered", {
+                    chatUserId: String(message.receiverId),
+                    messageIds: [String(message._id)],
+                    deliveredAt: message.deliveredAt,
+                });
+            }
+            if (updates.seen) {
                 io.to(senderSocketId).emit("messagesSeen", {
                     chatUserId: String(message.receiverId),
                     messageIds: [String(message._id)],
@@ -140,7 +191,111 @@ export const markMessageAsSeen = async (req, res) => {
             }
         }
 
-        res.json({ success: true });
+        res.json({ success: true, message });
+    } catch (error) {
+        console.log(error.message);
+        res.json({ success: false, message: error.message });
+    }
+};
+
+export const markMessageAsDelivered = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const existing = await Message.findById(id);
+        if (!existing) {
+            return res.json({ success: false, message: "Message not found" });
+        }
+        if (String(existing.receiverId) !== String(req.user._id)) {
+            return res.json({ success: false, message: "Not allowed" });
+        }
+
+        if (existing.delivered) {
+            return res.json({ success: true, message: existing });
+        }
+
+        const deliveredAt = new Date();
+        const message = await Message.findByIdAndUpdate(
+            id,
+            { delivered: true, deliveredAt },
+            { new: true }
+        );
+
+        const senderSocketId = userSocketMap[String(message.senderId)];
+        if (senderSocketId) {
+            io.to(senderSocketId).emit("messagesDelivered", {
+                chatUserId: String(message.receiverId),
+                messageIds: [String(message._id)],
+                deliveredAt,
+            });
+        }
+
+        res.json({ success: true, message });
+    } catch (error) {
+        console.log(error.message);
+        res.json({ success: false, message: error.message });
+    }
+};
+
+export const markMessageAsPlayed = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const existing = await Message.findById(id);
+        if (!existing) {
+            return res.json({ success: false, message: "Message not found" });
+        }
+        if (String(existing.receiverId) !== String(req.user._id)) {
+            return res.json({ success: false, message: "Not allowed" });
+        }
+
+        const hasAudio = (existing.attachments || []).some(
+            (a) => a.kind === "audio"
+        ) || existing.attachment?.kind === "audio";
+        if (!hasAudio) {
+            return res.json({
+                success: false,
+                message: "Only voice messages can be marked played",
+            });
+        }
+
+        const now = new Date();
+        const updates = { played: true, playedAt: existing.playedAt || now };
+        if (!existing.delivered) {
+            updates.delivered = true;
+            updates.deliveredAt = existing.deliveredAt || now;
+        }
+        if (!existing.seen) {
+            updates.seen = true;
+            updates.seenAt = existing.seenAt || now;
+        }
+
+        const message = await Message.findByIdAndUpdate(id, updates, {
+            new: true,
+        });
+
+        const senderSocketId = userSocketMap[String(message.senderId)];
+        if (senderSocketId) {
+            io.to(senderSocketId).emit("messagesPlayed", {
+                chatUserId: String(message.receiverId),
+                messageIds: [String(message._id)],
+                playedAt: message.playedAt,
+            });
+            if (!existing.seen) {
+                io.to(senderSocketId).emit("messagesSeen", {
+                    chatUserId: String(message.receiverId),
+                    messageIds: [String(message._id)],
+                    seenAt: message.seenAt,
+                });
+            }
+            if (!existing.delivered) {
+                io.to(senderSocketId).emit("messagesDelivered", {
+                    chatUserId: String(message.receiverId),
+                    messageIds: [String(message._id)],
+                    deliveredAt: message.deliveredAt,
+                });
+            }
+        }
+
+        res.json({ success: true, message });
     } catch (error) {
         console.log(error.message);
         res.json({ success: false, message: error.message });
@@ -230,9 +385,24 @@ export const sendMessage = async (req, res) => {
         // Emit the new message to the receiver's socket 
         const receiverSocketId = userSocketMap[String(receiverId)];
         if (receiverSocketId) {
-            io.to(receiverSocketId).emit("newMessage", newMessage)
+            io.to(receiverSocketId).emit("newMessage", newMessage);
+            // Online receiver ⇒ delivered once pushed to their socket
+            const deliveredAt = new Date();
+            const deliveredMessage = await Message.findByIdAndUpdate(
+                newMessage._id,
+                { delivered: true, deliveredAt },
+                { new: true }
+            );
+            const senderSocketId = userSocketMap[String(senderId)];
+            if (senderSocketId) {
+                io.to(senderSocketId).emit("messagesDelivered", {
+                    chatUserId: String(receiverId),
+                    messageIds: [String(newMessage._id)],
+                    deliveredAt,
+                });
+            }
+            return res.json({ success: true, newMessage: deliveredMessage });
         }
-
 
         res.json({ success: true, newMessage })
     } catch (error) {

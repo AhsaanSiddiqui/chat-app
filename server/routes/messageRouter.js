@@ -6,6 +6,8 @@ import {
     editMessage,
     getMessages,
     getUsersForSidebar,
+    markMessageAsDelivered,
+    markMessageAsPlayed,
     markMessageAsSeen,
     reactToMessage,
     sendMessage,
@@ -16,6 +18,8 @@ const messageRouter = express.Router();
 
 messageRouter.get("/users", protectRoute, getUsersForSidebar);
 messageRouter.put("/mark/:id", protectRoute, markMessageAsSeen);
+messageRouter.put("/delivered/:id", protectRoute, markMessageAsDelivered);
+messageRouter.put("/played/:id", protectRoute, markMessageAsPlayed);
 messageRouter.put("/edit/:id", protectRoute, editMessage);
 messageRouter.post("/react/:id", protectRoute, reactToMessage);
 messageRouter.delete("/delete/:id", protectRoute, deleteMessage);

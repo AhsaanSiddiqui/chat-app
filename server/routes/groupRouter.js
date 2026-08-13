@@ -10,6 +10,8 @@ import {
   getGroupMessages,
   getMyGroups,
   makeGroupAdmin,
+  markGroupMessageDelivered,
+  markGroupMessagePlayed,
   reactToGroupMessage,
   removeGroupMember,
   sendGroupMessage,
@@ -34,6 +36,16 @@ groupRouter.post(
   sendGroupMessage
 );
 groupRouter.put("/messages/:messageId", protectRoute, editGroupMessage);
+groupRouter.put(
+  "/messages/:messageId/delivered",
+  protectRoute,
+  markGroupMessageDelivered
+);
+groupRouter.put(
+  "/messages/:messageId/played",
+  protectRoute,
+  markGroupMessagePlayed
+);
 groupRouter.post(
   "/messages/:messageId/react",
   protectRoute,

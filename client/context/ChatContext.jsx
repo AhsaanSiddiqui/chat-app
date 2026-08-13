@@ -609,6 +609,8 @@ export const ChatProvider = ({ children }) => {
           profilePic: authUser.profilePic,
         },
         seenBy: [authUser._id],
+        deliveredTo: [authUser._id],
+        playedBy: [],
       });
       const tempId = optimisticMessage._id;
 
@@ -642,7 +644,9 @@ export const ChatProvider = ({ children }) => {
     const optimisticMessage = buildOptimistic({
       senderId: authUser._id,
       receiverId: selectedUser._id,
+      delivered: false,
       seen: false,
+      played: false,
     });
     const tempId = optimisticMessage._id;
 
@@ -856,21 +860,28 @@ export const ChatProvider = ({ children }) => {
 
     const onNewMessage = (newMessage) => {
       const currentSelected = selectedUserRef.current;
+      const messageId = newMessage._id;
+
+      // Always ack delivery when we receive a DM
+      if (messageId && !String(messageId).startsWith("temp-")) {
+        axios.put(`/api/messages/delivered/${messageId}`).catch(() => {});
+      }
 
       if (
         currentSelected &&
         String(newMessage.senderId) === String(currentSelected._id)
       ) {
+        newMessage.delivered = true;
         newMessage.seen = true;
         setMessages((prevMessages) => [...prevMessages, newMessage]);
-        axios.put(`/api/messages/mark/${newMessage._id}`);
+        axios.put(`/api/messages/mark/${newMessage._id}`).catch(() => {});
         setIsOtherUserTyping(false);
       } else {
         const chatId = String(newMessage.senderId);
         if (messageCacheRef.current[chatId]) {
           messageCacheRef.current[chatId] = [
             ...messageCacheRef.current[chatId],
-            newMessage,
+            { ...newMessage, delivered: true },
           ];
         }
 
@@ -887,6 +898,18 @@ export const ChatProvider = ({ children }) => {
 
     const onNewGroupMessage = (newMessage) => {
       const groupId = String(newMessage.groupId);
+      const messageId = newMessage._id;
+
+      if (
+        messageId &&
+        !String(messageId).startsWith("temp-") &&
+        newMessage.messageType !== "system" &&
+        resolveId(newMessage.senderId) !== String(authUser?._id)
+      ) {
+        axios
+          .put(`/api/groups/messages/${messageId}/delivered`)
+          .catch(() => {});
+      }
 
       if (isGroupMessageOpen(newMessage)) {
         setMessages((prev) => {
@@ -1004,9 +1027,131 @@ export const ChatProvider = ({ children }) => {
       setMessages((prev) =>
         prev.map((msg) =>
           idSet.has(String(msg._id))
-            ? { ...msg, seen: true, seenAt: msg.seenAt || readAt }
+            ? {
+                ...msg,
+                delivered: true,
+                seen: true,
+                seenAt: msg.seenAt || readAt,
+                deliveredAt: msg.deliveredAt || readAt,
+              }
             : msg
         )
+      );
+    };
+
+    const onMessagesDelivered = ({ chatUserId, messageIds, deliveredAt }) => {
+      const currentSelected = selectedUserRef.current;
+      if (
+        !currentSelected ||
+        String(currentSelected._id) !== String(chatUserId)
+      ) {
+        return;
+      }
+      const idSet = new Set((messageIds || []).map(String));
+      const at = deliveredAt || new Date().toISOString();
+      setMessages((prev) =>
+        prev.map((msg) =>
+          idSet.has(String(msg._id))
+            ? {
+                ...msg,
+                delivered: true,
+                deliveredAt: msg.deliveredAt || at,
+              }
+            : msg
+        )
+      );
+    };
+
+    const onMessagesPlayed = ({ chatUserId, messageIds, playedAt }) => {
+      const currentSelected = selectedUserRef.current;
+      if (
+        !currentSelected ||
+        String(currentSelected._id) !== String(chatUserId)
+      ) {
+        return;
+      }
+      const idSet = new Set((messageIds || []).map(String));
+      const at = playedAt || new Date().toISOString();
+      setMessages((prev) =>
+        prev.map((msg) =>
+          idSet.has(String(msg._id))
+            ? {
+                ...msg,
+                delivered: true,
+                played: true,
+                playedAt: msg.playedAt || at,
+                deliveredAt: msg.deliveredAt || at,
+              }
+            : msg
+        )
+      );
+    };
+
+    const onGroupMessagesSeen = ({ groupId, userId, messageIds }) => {
+      if (String(selectedGroupRef.current?._id) !== String(groupId)) return;
+      const idSet = new Set((messageIds || []).map(String));
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (!idSet.has(String(msg._id))) return msg;
+          const seenBy = Array.isArray(msg.seenBy) ? [...msg.seenBy] : [];
+          if (!seenBy.some((id) => String(id) === String(userId))) {
+            seenBy.push(userId);
+          }
+          const deliveredTo = Array.isArray(msg.deliveredTo)
+            ? [...msg.deliveredTo]
+            : [];
+          if (!deliveredTo.some((id) => String(id) === String(userId))) {
+            deliveredTo.push(userId);
+          }
+          return { ...msg, seenBy, deliveredTo };
+        })
+      );
+    };
+
+    const onGroupMessagesDelivered = ({
+      groupId,
+      userId,
+      messageIds,
+      deliveredTo,
+    }) => {
+      if (String(selectedGroupRef.current?._id) !== String(groupId)) return;
+      const idSet = new Set((messageIds || []).map(String));
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (!idSet.has(String(msg._id))) return msg;
+          if (Array.isArray(deliveredTo)) {
+            return { ...msg, deliveredTo };
+          }
+          const next = Array.isArray(msg.deliveredTo)
+            ? [...msg.deliveredTo]
+            : [];
+          if (
+            userId &&
+            userId !== "online-batch" &&
+            !next.some((id) => String(id) === String(userId))
+          ) {
+            next.push(userId);
+          }
+          return { ...msg, deliveredTo: next };
+        })
+      );
+    };
+
+    const onGroupMessagesPlayed = ({ groupId, userId, messageIds, playedBy }) => {
+      if (String(selectedGroupRef.current?._id) !== String(groupId)) return;
+      const idSet = new Set((messageIds || []).map(String));
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (!idSet.has(String(msg._id))) return msg;
+          if (Array.isArray(playedBy)) {
+            return { ...msg, playedBy };
+          }
+          const next = Array.isArray(msg.playedBy) ? [...msg.playedBy] : [];
+          if (userId && !next.some((id) => String(id) === String(userId))) {
+            next.push(userId);
+          }
+          return { ...msg, playedBy: next };
+        })
       );
     };
 
@@ -1055,6 +1200,11 @@ export const ChatProvider = ({ children }) => {
     socket.on("typing", onTyping);
     socket.on("groupTyping", onGroupTyping);
     socket.on("messagesSeen", onMessagesSeen);
+    socket.on("messagesDelivered", onMessagesDelivered);
+    socket.on("messagesPlayed", onMessagesPlayed);
+    socket.on("groupMessagesSeen", onGroupMessagesSeen);
+    socket.on("groupMessagesDelivered", onGroupMessagesDelivered);
+    socket.on("groupMessagesPlayed", onGroupMessagesPlayed);
     socket.on("groupCreated", onGroupCreated);
     socket.on("groupUpdated", onGroupUpdated);
 
@@ -1068,6 +1218,11 @@ export const ChatProvider = ({ children }) => {
       socket.off("typing", onTyping);
       socket.off("groupTyping", onGroupTyping);
       socket.off("messagesSeen", onMessagesSeen);
+      socket.off("messagesDelivered", onMessagesDelivered);
+      socket.off("messagesPlayed", onMessagesPlayed);
+      socket.off("groupMessagesSeen", onGroupMessagesSeen);
+      socket.off("groupMessagesDelivered", onGroupMessagesDelivered);
+      socket.off("groupMessagesPlayed", onGroupMessagesPlayed);
       socket.off("groupCreated", onGroupCreated);
       socket.off("groupUpdated", onGroupUpdated);
     };
@@ -1100,6 +1255,26 @@ export const ChatProvider = ({ children }) => {
     };
   }, [authUser, ensureSocketConnected]);
 
+  const markMessagePlayed = async (messageId) => {
+    if (!messageId || String(messageId).startsWith("temp-")) return;
+    try {
+      const isGroup = !!selectedGroupRef.current?._id;
+      const url = isGroup
+        ? `/api/groups/messages/${messageId}/played`
+        : `/api/messages/played/${messageId}`;
+      const { data } = await axios.put(url);
+      if (data.success && data.message) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            String(msg._id) === String(messageId) ? { ...msg, ...data.message } : msg
+          )
+        );
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const value = {
     messages,
     users,
@@ -1119,6 +1294,7 @@ export const ChatProvider = ({ children }) => {
     deleteMessage,
     deleteAttachment,
     reactToMessage,
+    markMessagePlayed,
     setSelectedUser,
     setSelectedGroup,
     unseenMessages,

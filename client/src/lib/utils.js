@@ -7,26 +7,38 @@ export function formatMessageTime(date) {
   });
 }
 
-export function formatSeenTime(seenAt, sentAt) {
-  if (!seenAt) return "";
+function formatStatusTime(label, at, sentAt) {
+  if (!at) return "";
 
-  const seen = new Date(seenAt);
+  const when = new Date(at);
   const sent = sentAt ? new Date(sentAt) : null;
-  const time = formatMessageTime(seen);
+  const time = formatMessageTime(when);
 
-  if (!sent) return `Seen ${time}`;
+  if (!sent) return `${label} ${time}`;
 
-  const diffMs = Math.max(0, seen.getTime() - sent.getTime());
+  const diffMs = Math.max(0, when.getTime() - sent.getTime());
   const diffMins = Math.floor(diffMs / 60000);
 
-  if (diffMins < 1) return `Seen ${time}`;
-  if (diffMins < 60) return `Seen ${time} (+${diffMins}m)`;
+  if (diffMins < 1) return `${label} ${time}`;
+  if (diffMins < 60) return `${label} ${time} (+${diffMins}m)`;
 
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `Seen ${time} (+${diffHours}h)`;
+  if (diffHours < 24) return `${label} ${time} (+${diffHours}h)`;
 
   const diffDays = Math.floor(diffHours / 24);
-  return `Seen ${time} (+${diffDays}d)`;
+  return `${label} ${time} (+${diffDays}d)`;
+}
+
+export function formatSeenTime(seenAt, sentAt) {
+  return formatStatusTime("Seen", seenAt, sentAt);
+}
+
+export function formatPlayedTime(playedAt, sentAt) {
+  return formatStatusTime("Played", playedAt, sentAt);
+}
+
+export function formatDeliveredTime(deliveredAt, sentAt) {
+  return formatStatusTime("Delivered", deliveredAt, sentAt);
 }
 
 export const MAX_ATTACHMENT_SIZE = 600 * 1024 * 1024; // 600MB

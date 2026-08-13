@@ -56,6 +56,18 @@ const groupMessageSchema = new mongoose.Schema(
         ref: "User",
       },
     ],
+    deliveredTo: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    playedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
     isEdited: { type: Boolean, default: false },
     isDeleted: { type: Boolean, default: false },
     replyTo: {

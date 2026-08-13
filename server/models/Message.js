@@ -22,10 +22,14 @@ const messageSchema = new mongoose.Schema({
    attachment: attachmentSchema, // legacy single
    attachments: [attachmentSchema],
    reactions: { type: [reactionSchema], default: [] },
-   seen: {type: Boolean, default: false},
-   seenAt: {type: Date},
-   isEdited: {type: Boolean, default: false},
-   isDeleted: {type: Boolean, default: false},
+   delivered: { type: Boolean, default: false },
+   deliveredAt: { type: Date },
+   seen: { type: Boolean, default: false },
+   seenAt: { type: Date },
+   played: { type: Boolean, default: false },
+   playedAt: { type: Date },
+   isEdited: { type: Boolean, default: false },
+   isDeleted: { type: Boolean, default: false },
    replyTo: {
       messageId: { type: mongoose.Schema.Types.ObjectId, ref: "Message" },
       senderId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
