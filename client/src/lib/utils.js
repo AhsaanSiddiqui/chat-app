@@ -41,6 +41,90 @@ export function formatDeliveredTime(deliveredAt, sentAt) {
   return formatStatusTime("Delivered", deliveredAt, sentAt);
 }
 
+/** Labels for 1:1 call activity bubbles in chat. */
+export function getCallActivityDisplay(msg, authUserId) {
+  const call = msg?.call || {};
+  const isVideo = call.callType === "video";
+  const kind = isVideo ? "Video" : "Voice";
+  const kindLower = isVideo ? "video" : "voice";
+  const isOutgoing = String(resolveCallPartyId(msg?.senderId)) === String(authUserId);
+  const duration = Number(call.duration) || 0;
+  const durationLabel = duration > 0 ? formatDuration(duration) : "";
+
+  switch (call.status) {
+    case "answered":
+      return {
+        title: `${kind} call`,
+        subtitle: durationLabel,
+        tone: "normal",
+        icon: isVideo ? "📹" : "📞",
+      };
+    case "declined":
+      return isOutgoing
+        ? {
+            title: `${kind} call`,
+            subtitle: "Declined",
+            tone: "muted",
+            icon: isVideo ? "📹" : "📞",
+          }
+        : {
+            title: `Missed ${kindLower} call`,
+            subtitle: "Declined",
+            tone: "missed",
+            icon: "📵",
+          };
+    case "cancelled":
+      return isOutgoing
+        ? {
+            title: `Cancelled ${kindLower} call`,
+            subtitle: "",
+            tone: "muted",
+            icon: isVideo ? "📹" : "📞",
+          }
+        : {
+            title: `Missed ${kindLower} call`,
+            subtitle: "",
+            tone: "missed",
+            icon: "📵",
+          };
+    case "busy":
+      return {
+        title: `${kind} call`,
+        subtitle: "Busy",
+        tone: "muted",
+        icon: isVideo ? "📹" : "📞",
+      };
+    case "unavailable":
+      return {
+        title: `${kind} call`,
+        subtitle: "Unavailable",
+        tone: "muted",
+        icon: isVideo ? "📹" : "📞",
+      };
+    case "missed":
+    default:
+      return isOutgoing
+        ? {
+            title: `${kind} call`,
+            subtitle: "No answer",
+            tone: "muted",
+            icon: isVideo ? "📹" : "📞",
+          }
+        : {
+            title: `Missed ${kindLower} call`,
+            subtitle: "",
+            tone: "missed",
+            icon: "📵",
+          };
+  }
+}
+
+function resolveCallPartyId(value) {
+  if (!value) return "";
+  if (typeof value === "object") return String(value._id || "");
+  return String(value);
+}
+
 export const MAX_ATTACHMENT_SIZE = 600 * 1024 * 1024; // 600MB
 export const MAX_ATTACHMENTS_PER_MESSAGE = 20;
 

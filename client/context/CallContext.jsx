@@ -18,8 +18,11 @@ const ICE_SERVERS = {
   ],
 };
 
+const makeCallId = () =>
+  `call_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
 export const CallProvider = ({ children }) => {
-  const { socket, authUser, onlineUsers } = useContext(AuthContext);
+  const { socket, authUser, onlineUsers, axios } = useContext(AuthContext);
 
   const [callState, setCallState] = useState("idle"); // idle | ringing | calling | connected
   const [callType, setCallType] = useState("audio"); // audio | video
@@ -28,6 +31,7 @@ export const CallProvider = ({ children }) => {
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
+  const [callElapsedSec, setCallElapsedSec] = useState(0);
 
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -36,12 +40,38 @@ export const CallProvider = ({ children }) => {
   const makingOfferRef = useRef(false);
   const callTypeRef = useRef("audio");
   const callActiveRef = useRef(false);
+  const callIdRef = useRef(null);
+  const isCallerRef = useRef(false);
+  const callerIdRef = useRef(null);
+  const calleeIdRef = useRef(null);
+  const connectedAtRef = useRef(null);
+  const wasConnectedRef = useRef(false);
+  const loggedCallIdRef = useRef(null);
+  const endingRef = useRef(false);
 
   useEffect(() => {
     callActiveRef.current = callState !== "idle";
   }, [callState]);
 
-  const cleanupCall = useCallback(() => {
+  useEffect(() => {
+    if (callState !== "connected" || !connectedAtRef.current) {
+      setCallElapsedSec(0);
+      return;
+    }
+    const tick = () => {
+      setCallElapsedSec(
+        Math.max(
+          0,
+          Math.floor((Date.now() - connectedAtRef.current) / 1000)
+        )
+      );
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [callState]);
+
+  const cleanupMedia = useCallback(() => {
     try {
       pcRef.current?.getSenders?.().forEach((sender) => {
         try {
@@ -62,13 +92,108 @@ export const CallProvider = ({ children }) => {
 
     setLocalStream(null);
     setRemoteStream(null);
-    setCallState("idle");
-    setRemoteUser(null);
     setIsMuted(false);
     setIsCameraOff(false);
-    remoteUserIdRef.current = null;
     makingOfferRef.current = false;
   }, []);
+
+  const resetCallMeta = useCallback(() => {
+    setCallState("idle");
+    setRemoteUser(null);
+    setCallElapsedSec(0);
+    remoteUserIdRef.current = null;
+    callIdRef.current = null;
+    isCallerRef.current = false;
+    callerIdRef.current = null;
+    calleeIdRef.current = null;
+    connectedAtRef.current = null;
+    wasConnectedRef.current = false;
+    endingRef.current = false;
+  }, []);
+
+  const cleanupCall = useCallback(() => {
+    cleanupMedia();
+    resetCallMeta();
+  }, [cleanupMedia, resetCallMeta]);
+
+  const markConnected = useCallback(() => {
+    if (!connectedAtRef.current) {
+      connectedAtRef.current = Date.now();
+    }
+    wasConnectedRef.current = true;
+    setCallState("connected");
+  }, []);
+
+  const logCallActivity = useCallback(
+    async (status, durationOverride) => {
+      const callId = callIdRef.current;
+      const callerId = callerIdRef.current;
+      const calleeId = calleeIdRef.current;
+      if (!callId || !callerId || !calleeId || !axios || !authUser) return;
+      if (loggedCallIdRef.current === callId) return;
+      loggedCallIdRef.current = callId;
+
+      let duration = 0;
+      if (status === "answered") {
+        if (typeof durationOverride === "number") {
+          duration = durationOverride;
+        } else if (connectedAtRef.current) {
+          duration = Math.max(
+            0,
+            Math.floor((Date.now() - connectedAtRef.current) / 1000)
+          );
+        }
+      }
+
+      try {
+        await axios.post("/api/messages/call-log", {
+          callerId,
+          calleeId,
+          callId,
+          callType: callTypeRef.current || "audio",
+          status,
+          duration,
+        });
+      } catch (error) {
+        console.error("call log failed", error);
+        // Allow a retry if the request never reached the server
+        if (loggedCallIdRef.current === callId) {
+          loggedCallIdRef.current = null;
+        }
+      }
+    },
+    [axios, authUser]
+  );
+
+  const finishCall = useCallback(
+    async ({ status, notifyPeer = false, event = "call:end", reason } = {}) => {
+      if (endingRef.current) return;
+      endingRef.current = true;
+
+      const peerId = remoteUserIdRef.current;
+      const connected = wasConnectedRef.current;
+      const finalStatus =
+        status ||
+        (connected
+          ? "answered"
+          : isCallerRef.current
+            ? "cancelled"
+            : "missed");
+
+      if (notifyPeer && peerId && socket) {
+        socket.emit(event, {
+          to: peerId,
+          callId: callIdRef.current,
+          reason,
+          status: finalStatus,
+        });
+      }
+
+      await logCallActivity(finalStatus);
+      cleanupCall();
+    },
+    [socket, cleanupCall, logCallActivity]
+  );
 
   const createPeerConnection = useCallback(
     (peerId) => {
@@ -78,6 +203,7 @@ export const CallProvider = ({ children }) => {
         if (event.candidate && socket && peerId) {
           socket.emit("call:ice-candidate", {
             to: peerId,
+            callId: callIdRef.current,
             candidate: event.candidate,
           });
         }
@@ -92,20 +218,22 @@ export const CallProvider = ({ children }) => {
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState;
         if (state === "connected") {
-          setCallState("connected");
+          markConnected();
         }
         if (state === "failed" || state === "disconnected" || state === "closed") {
-          if (remoteUserIdRef.current) {
-            socket?.emit("call:end", { to: remoteUserIdRef.current });
-          }
-          cleanupCall();
+          if (endingRef.current) return;
+          finishCall({
+            status: wasConnectedRef.current ? "answered" : "cancelled",
+            notifyPeer: true,
+            event: "call:end",
+          });
         }
       };
 
       pcRef.current = pc;
       return pc;
     },
-    [socket, cleanupCall]
+    [socket, markConnected, finishCall]
   );
 
   const getMedia = async (type) => {
@@ -123,20 +251,25 @@ export const CallProvider = ({ children }) => {
   };
 
   const endCall = useCallback(() => {
-    const peerId = remoteUserIdRef.current;
-    if (peerId && socket) {
-      socket.emit("call:end", { to: peerId });
-    }
-    cleanupCall();
-  }, [socket, cleanupCall]);
+    finishCall({
+      status: wasConnectedRef.current
+        ? "answered"
+        : isCallerRef.current
+          ? "cancelled"
+          : "missed",
+      notifyPeer: true,
+      event: "call:end",
+    });
+  }, [finishCall]);
 
   const rejectCall = useCallback(() => {
-    const peerId = remoteUserIdRef.current;
-    if (peerId && socket) {
-      socket.emit("call:reject", { to: peerId });
-    }
-    cleanupCall();
-  }, [socket, cleanupCall]);
+    finishCall({
+      status: "declined",
+      notifyPeer: true,
+      event: "call:reject",
+      reason: "declined",
+    });
+  }, [finishCall]);
 
   const startCall = async (user, type = "audio") => {
     if (!user?._id || !socket || !authUser) return;
@@ -150,6 +283,16 @@ export const CallProvider = ({ children }) => {
     }
 
     try {
+      const callId = makeCallId();
+      callIdRef.current = callId;
+      loggedCallIdRef.current = null;
+      endingRef.current = false;
+      isCallerRef.current = true;
+      callerIdRef.current = String(authUser._id);
+      calleeIdRef.current = String(user._id);
+      connectedAtRef.current = null;
+      wasConnectedRef.current = false;
+
       callTypeRef.current = type;
       setCallType(type);
       setRemoteUser(user);
@@ -162,6 +305,7 @@ export const CallProvider = ({ children }) => {
 
       socket.emit("call:invite", {
         to: user._id,
+        callId,
         callType: type,
         fromUser: {
           _id: authUser._id,
@@ -177,6 +321,7 @@ export const CallProvider = ({ children }) => {
 
       socket.emit("call:offer", {
         to: user._id,
+        callId,
         sdp: pc.localDescription,
         callType: type,
       });
@@ -204,6 +349,7 @@ export const CallProvider = ({ children }) => {
 
       socket.emit("call:accept", {
         to: remoteUserIdRef.current,
+        callId: callIdRef.current,
         callType: type,
       });
 
@@ -213,11 +359,12 @@ export const CallProvider = ({ children }) => {
         await pc.setLocalDescription(answer);
         socket.emit("call:answer", {
           to: remoteUserIdRef.current,
+          callId: callIdRef.current,
           sdp: pc.localDescription,
         });
       }
 
-      setCallState("connected");
+      markConnected();
     } catch (error) {
       console.error(error);
       rejectCall();
@@ -254,9 +401,25 @@ export const CallProvider = ({ children }) => {
 
     const onInvite = (payload) => {
       if (callActiveRef.current) {
-        socket.emit("call:reject", { to: payload.from, reason: "busy" });
+        socket.emit("call:reject", {
+          to: payload.from,
+          callId: payload.callId,
+          reason: "busy",
+          status: "busy",
+        });
         return;
       }
+
+      const callId = payload.callId || makeCallId();
+      callIdRef.current = callId;
+      loggedCallIdRef.current = null;
+      endingRef.current = false;
+      isCallerRef.current = false;
+      callerIdRef.current = String(payload.from);
+      calleeIdRef.current = String(authUser?._id || "");
+      connectedAtRef.current = null;
+      wasConnectedRef.current = false;
+
       callTypeRef.current = payload.callType || "audio";
       setCallType(payload.callType || "audio");
       setRemoteUser(
@@ -272,6 +435,7 @@ export const CallProvider = ({ children }) => {
 
     const onOffer = async (payload) => {
       try {
+        if (payload.callId) callIdRef.current = payload.callId;
         remoteUserIdRef.current = String(payload.from);
         callTypeRef.current = payload.callType || callTypeRef.current;
         setCallType(payload.callType || callTypeRef.current);
@@ -293,9 +457,10 @@ export const CallProvider = ({ children }) => {
           await pc.setLocalDescription(answer);
           socket.emit("call:answer", {
             to: payload.from,
+            callId: callIdRef.current,
             sdp: pc.localDescription,
           });
-          setCallState("connected");
+          markConnected();
         }
       } catch (error) {
         console.error(error);
@@ -303,7 +468,7 @@ export const CallProvider = ({ children }) => {
     };
 
     const onAccept = () => {
-      setCallState("connected");
+      markConnected();
     };
 
     const onAnswer = async (payload) => {
@@ -311,7 +476,7 @@ export const CallProvider = ({ children }) => {
         const pc = pcRef.current;
         if (!pc) return;
         await pc.setRemoteDescription(payload.sdp);
-        setCallState("connected");
+        markConnected();
       } catch (error) {
         console.error(error);
       }
@@ -327,18 +492,30 @@ export const CallProvider = ({ children }) => {
       }
     };
 
-    const onReject = () => {
-      toast.error("Call declined");
-      cleanupCall();
+    const onReject = (payload) => {
+      const reason = payload?.reason;
+      const status =
+        reason === "busy" || payload?.status === "busy"
+          ? "busy"
+          : "declined";
+      if (status === "declined") {
+        toast.error("Call declined");
+      } else {
+        toast.error("User is busy");
+      }
+      finishCall({ status, notifyPeer: false });
     };
 
     const onEnd = () => {
-      cleanupCall();
+      finishCall({
+        status: wasConnectedRef.current ? "answered" : "missed",
+        notifyPeer: false,
+      });
     };
 
     const onUnavailable = () => {
       toast.error("User is unavailable");
-      cleanupCall();
+      finishCall({ status: "unavailable", notifyPeer: false });
     };
 
     socket.on("call:invite", onInvite);
@@ -360,7 +537,7 @@ export const CallProvider = ({ children }) => {
       socket.off("call:end", onEnd);
       socket.off("call:unavailable", onUnavailable);
     };
-  }, [socket, createPeerConnection, cleanupCall]);
+  }, [socket, createPeerConnection, finishCall, markConnected, authUser?._id]);
 
   useEffect(() => {
     return () => cleanupCall();
@@ -374,6 +551,7 @@ export const CallProvider = ({ children }) => {
     remoteStream,
     isMuted,
     isCameraOff,
+    callElapsedSec,
     startCall,
     acceptCall,
     rejectCall,

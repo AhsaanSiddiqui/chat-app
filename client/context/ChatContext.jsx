@@ -820,13 +820,29 @@ export const ChatProvider = ({ children }) => {
     );
 
     const title = sender?.fullName || "New message";
-    const body = newMessage.text
-      ? newMessage.text
-      : newMessage.image || newMessage.attachment?.kind === "image"
-        ? "Sent a photo"
-        : newMessage.attachment?.name
-          ? `Sent ${newMessage.attachment.name}`
-          : "New message";
+    let body = "New message";
+    if (newMessage.messageType === "call") {
+      const status = newMessage.call?.status;
+      const isVideo = newMessage.call?.callType === "video";
+      const kind = isVideo ? "video" : "voice";
+      if (status === "answered") {
+        body = `${isVideo ? "Video" : "Voice"} call`;
+      } else if (
+        status === "missed" ||
+        status === "declined" ||
+        status === "cancelled"
+      ) {
+        body = `Missed ${kind} call`;
+      } else {
+        body = `${isVideo ? "Video" : "Voice"} call`;
+      }
+    } else if (newMessage.text) {
+      body = newMessage.text;
+    } else if (newMessage.image || newMessage.attachment?.kind === "image") {
+      body = "Sent a photo";
+    } else if (newMessage.attachment?.name) {
+      body = `Sent ${newMessage.attachment.name}`;
+    }
 
     showChatNotification({
       title,
@@ -861,23 +877,49 @@ export const ChatProvider = ({ children }) => {
     const onNewMessage = (newMessage) => {
       const currentSelected = selectedUserRef.current;
       const messageId = newMessage._id;
+      const myId = String(authUser?._id || "");
+      const senderId = resolveId(newMessage.senderId);
+      const receiverId = resolveId(newMessage.receiverId);
+      const isFromMe = senderId === myId;
+      const isToMe = receiverId === myId;
 
-      // Always ack delivery when we receive a DM
-      if (messageId && !String(messageId).startsWith("temp-")) {
+      // Ack delivery only for messages addressed to me
+      if (
+        isToMe &&
+        !isFromMe &&
+        messageId &&
+        !String(messageId).startsWith("temp-")
+      ) {
         axios.put(`/api/messages/delivered/${messageId}`).catch(() => {});
       }
 
-      if (
-        currentSelected &&
-        String(newMessage.senderId) === String(currentSelected._id)
-      ) {
-        newMessage.delivered = true;
-        newMessage.seen = true;
-        setMessages((prevMessages) => [...prevMessages, newMessage]);
-        axios.put(`/api/messages/mark/${newMessage._id}`).catch(() => {});
-        setIsOtherUserTyping(false);
-      } else {
-        const chatId = String(newMessage.senderId);
+      const openChatId = currentSelected?._id
+        ? String(currentSelected._id)
+        : "";
+      const belongsToOpenChat =
+        !!openChatId &&
+        ((senderId === openChatId && isToMe) ||
+          (receiverId === openChatId && isFromMe) ||
+          (senderId === openChatId && isFromMe) ||
+          (receiverId === openChatId && isToMe));
+
+      if (belongsToOpenChat) {
+        setMessages((prevMessages) => {
+          if (
+            prevMessages.some((m) => String(m._id) === String(newMessage._id))
+          ) {
+            return prevMessages;
+          }
+          return [...prevMessages, newMessage];
+        });
+        if (isToMe && !isFromMe) {
+          newMessage.delivered = true;
+          newMessage.seen = true;
+          axios.put(`/api/messages/mark/${newMessage._id}`).catch(() => {});
+          setIsOtherUserTyping(false);
+        }
+      } else if (isToMe && !isFromMe) {
+        const chatId = senderId;
         if (messageCacheRef.current[chatId]) {
           messageCacheRef.current[chatId] = [
             ...messageCacheRef.current[chatId],
@@ -887,13 +929,15 @@ export const ChatProvider = ({ children }) => {
 
         setUnseenMessages((prevUnseenMessages) => ({
           ...prevUnseenMessages,
-          [newMessage.senderId]: prevUnseenMessages[newMessage.senderId]
-            ? prevUnseenMessages[newMessage.senderId] + 1
+          [chatId]: prevUnseenMessages[chatId]
+            ? prevUnseenMessages[chatId] + 1
             : 1,
         }));
       }
 
-      notifyNewMessage(newMessage);
+      if (!isFromMe) {
+        notifyNewMessage(newMessage);
+      }
     };
 
     const onNewGroupMessage = (newMessage) => {

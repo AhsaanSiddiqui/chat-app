@@ -595,3 +595,93 @@ export const reactToMessage = async (req, res) => {
         res.json({ success: false, message: error.message });
     }
 };
+
+const CALL_STATUSES = new Set([
+    "answered",
+    "missed",
+    "declined",
+    "cancelled",
+    "busy",
+    "unavailable",
+]);
+
+/** Persist a 1:1 call activity bubble in the DM thread (deduped by callId). */
+export const logCallActivity = async (req, res) => {
+    try {
+        const {
+            callerId,
+            calleeId,
+            callId,
+            callType = "audio",
+            status,
+            duration = 0,
+        } = req.body;
+
+        if (!callerId || !calleeId || !callId || !CALL_STATUSES.has(status)) {
+            return res.json({ success: false, message: "Invalid call log" });
+        }
+
+        const me = String(req.user._id);
+        if (me !== String(callerId) && me !== String(calleeId)) {
+            return res.json({ success: false, message: "Not allowed" });
+        }
+
+        if (String(callerId) === String(calleeId)) {
+            return res.json({ success: false, message: "Invalid participants" });
+        }
+
+        const existing = await Message.findOne({ callId: String(callId) });
+        if (existing) {
+            if (
+                status === "answered" &&
+                existing.call?.status !== "answered" &&
+                Number(duration) > 0
+            ) {
+                existing.call = {
+                    callType: callType === "video" ? "video" : "audio",
+                    status: "answered",
+                    duration: Math.max(0, Math.floor(Number(duration) || 0)),
+                };
+                existing.text = "";
+                await existing.save();
+                emitToChatUsers(existing, "messageUpdated", existing);
+                return res.json({ success: true, newMessage: existing });
+            }
+            return res.json({ success: true, newMessage: existing });
+        }
+
+        const newMessage = await Message.create({
+            senderId: callerId,
+            receiverId: calleeId,
+            text: "",
+            messageType: "call",
+            callId: String(callId),
+            call: {
+                callType: callType === "video" ? "video" : "audio",
+                status,
+                duration: Math.max(0, Math.floor(Number(duration) || 0)),
+            },
+            delivered: true,
+            deliveredAt: new Date(),
+            seen: false,
+        });
+
+        const callerSocket = userSocketMap[String(callerId)];
+        const calleeSocket = userSocketMap[String(calleeId)];
+        if (callerSocket) io.to(callerSocket).emit("newMessage", newMessage);
+        if (calleeSocket) io.to(calleeSocket).emit("newMessage", newMessage);
+
+        res.json({ success: true, newMessage });
+    } catch (error) {
+        if (error?.code === 11000 && req.body?.callId) {
+            const existing = await Message.findOne({
+                callId: String(req.body.callId),
+            });
+            if (existing) {
+                return res.json({ success: true, newMessage: existing });
+            }
+        }
+        console.log(error.message);
+        res.json({ success: false, message: error.message });
+    }
+};

@@ -22,6 +22,20 @@ const messageSchema = new mongoose.Schema({
    attachment: attachmentSchema, // legacy single
    attachments: [attachmentSchema],
    reactions: { type: [reactionSchema], default: [] },
+   messageType: {
+      type: String,
+      enum: ["text", "call"],
+      default: "text",
+   },
+   callId: { type: String, sparse: true, unique: true },
+   call: {
+      callType: { type: String, enum: ["audio", "video"] },
+      status: {
+         type: String,
+         enum: ["answered", "missed", "declined", "cancelled", "busy", "unavailable"],
+      },
+      duration: { type: Number, default: 0 }, // seconds
+   },
    delivered: { type: Boolean, default: false },
    deliveredAt: { type: Date },
    seen: { type: Boolean, default: false },

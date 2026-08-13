@@ -9,6 +9,7 @@ import {
   formatSeenTime,
   formatPlayedTime,
   formatDeliveredTime,
+  getCallActivityDisplay,
   getAttachmentKind,
   getMessageAttachments,
   isAllowedAttachmentFile,
@@ -151,7 +152,7 @@ const ChatContainer = () => {
   const chatImageUrls = useMemo(() => {
     const urls = [];
     messages.forEach((msg) => {
-      if (msg.isDeleted || msg.messageType === "system") return;
+      if (msg.isDeleted || msg.messageType === "system" || msg.messageType === "call") return;
       getMessageAttachments(msg).forEach((file) => {
         if (file?.kind === "image" && file.url) urls.push(file.url);
       });
@@ -953,6 +954,7 @@ const ChatContainer = () => {
                   !msg.attachments?.length &&
                   !msg.isDeleted;
                 const isSystemMessage = msg.messageType === "system";
+                const isCallMessage = msg.messageType === "call";
                 const reactionSummary = summarizeReactions(
                   msg.reactions || [],
                   authUser._id
@@ -967,6 +969,37 @@ const ChatContainer = () => {
                     >
                       <div className="max-w-[85%] rounded-full bg-white/10 px-3 py-1 text-center text-[11px] text-gray-300 border border-white/5">
                         {formatSystemMessageText(msg.text, authUser)}
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (isCallMessage) {
+                  const callUi = getCallActivityDisplay(msg, authUser._id);
+                  const toneClass =
+                    callUi.tone === "missed"
+                      ? "border-red-400/30 bg-red-500/10 text-red-200"
+                      : callUi.tone === "muted"
+                        ? "border-white/10 bg-white/5 text-gray-300"
+                        : "border-violet-400/20 bg-violet-500/10 text-violet-100";
+
+                  return (
+                    <div
+                      key={msg._id}
+                      id={`msg-${msg._id}`}
+                      className="flex justify-center my-1"
+                    >
+                      <div
+                        className={`max-w-[90%] rounded-2xl border px-3.5 py-2 text-center ${toneClass}`}
+                      >
+                        <div className="flex items-center justify-center gap-2 text-sm font-medium">
+                          <span aria-hidden>{callUi.icon}</span>
+                          <span>{callUi.title}</span>
+                        </div>
+                        <div className="mt-0.5 flex items-center justify-center gap-2 text-[11px] opacity-80">
+                          {callUi.subtitle ? <span>{callUi.subtitle}</span> : null}
+                          <span>{formatMessageTime(msg.createdAt)}</span>
+                        </div>
                       </div>
                     </div>
                   );

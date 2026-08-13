@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useRef } from "react";
 import { CallContext } from "../../context/CallContext";
 import assets from "../assets/assets";
+import { formatDuration } from "../lib/utils";
 
 const CallModal = () => {
   const {
@@ -11,6 +12,7 @@ const CallModal = () => {
     remoteStream,
     isMuted,
     isCameraOff,
+    callElapsedSec,
     acceptCall,
     rejectCall,
     endCall,
@@ -49,6 +51,15 @@ const CallModal = () => {
           ? "Video call"
           : "Voice call";
 
+  const statusLine =
+    callState === "connected"
+      ? formatDuration(callElapsedSec)
+      : callState === "ringing"
+        ? "Ringing..."
+        : callState === "calling"
+          ? "Calling..."
+          : callState;
+
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
       <div className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-white/10 bg-[#15151d] text-white shadow-2xl">
@@ -58,8 +69,7 @@ const CallModal = () => {
             {remoteUser.fullName || "User"}
           </h2>
           <p className="text-xs text-gray-400 mt-1">
-            {isVideo ? "Video" : "Audio"} ·{" "}
-            {callState === "connected" ? "Connected" : callState}
+            {isVideo ? "Video" : "Audio"} · {statusLine}
           </p>
         </div>
 
@@ -99,6 +109,11 @@ const CallModal = () => {
                     ? "Ringing..."
                     : "On call"}
               </p>
+              {callState === "connected" && (
+                <p className="text-lg tabular-nums text-violet-200">
+                  {formatDuration(callElapsedSec)}
+                </p>
+              )}
             </div>
           )}
 
