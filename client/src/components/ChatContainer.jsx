@@ -933,7 +933,7 @@ const ChatContainer = () => {
   if (!activeChat) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 text-gray-500 bg-white/10 h-full max-md:hidden">
-        <img src={assets.logo_icon} className="max-w-[230px]" alt="" />
+        <img src={assets.logo_big} className="max-w-[230px] w-full" alt="QuickChat" />
         <p className="text-lg font-medium text-white">
           Chat anytime, anywhere
         </p>

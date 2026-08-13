@@ -89,20 +89,25 @@ const Sidebar = () => {
     >
       <div className="px-5 pt-5">
         <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
+          <div
+            onClick={() => navigate("/")}
+            className="flex items-center gap-2.5 cursor-pointer min-w-0"
+          >
             <img
-              onClick={() => navigate("/")}
               src={assets.logo_icon}
-              alt="QuickChat"
-              className="h-10 cursor-pointer"
+              alt=""
+              className="h-10 w-10 flex-shrink-0"
             />
+            <span className="text-xl font-semibold text-white tracking-tight truncate">
+              QuickChat
+            </span>
           </div>
 
           <button
             type="button"
             onClick={() => setShowCreateGroup(true)}
             title="New group"
-            className="h-8 w-8 rounded-full flex items-center justify-center
+            className="h-8 w-8 flex-shrink-0 rounded-full flex items-center justify-center
             bg-violet-600/80 hover:bg-violet-500 transition text-lg leading-none"
           >
             +
