@@ -161,6 +161,11 @@ const ChatContainer = () => {
 
   const activeChat = selectedGroup || selectedUser;
   const isGroupChat = !!selectedGroup;
+  const isSavedNotes =
+    !isGroupChat &&
+    !!selectedUser &&
+    (selectedUser.isSavedNotes ||
+      String(selectedUser._id) === String(authUser?._id));
 
   const chatImageUrls = useMemo(() => {
     const urls = [];
@@ -936,12 +941,16 @@ const ChatContainer = () => {
     );
   }
 
-  const headerTitle = isGroupChat ? selectedGroup.name : selectedUser.fullName;
+  const headerTitle = isGroupChat
+    ? selectedGroup.name
+    : isSavedNotes
+      ? "Saved Notes"
+      : selectedUser.fullName;
   const headerPic = isGroupChat
     ? selectedGroup.groupPic || assets.avatar_icon
     : selectedUser.profilePic || assets.avatar_icon;
   const showGroupTyping = isGroupChat && groupTypingUsers.length > 0;
-  const showDmTyping = !isGroupChat && isOtherUserTyping;
+  const showDmTyping = !isGroupChat && !isSavedNotes && isOtherUserTyping;
 
   return (
     <div
@@ -949,11 +958,22 @@ const ChatContainer = () => {
       onPaste={handlePaste}
     >
       <div className="flex items-center gap-3 p-4 border-b border-gray-700 flex-shrink-0">
-        <img
-          src={headerPic}
-          alt=""
-          className="w-10 h-10 rounded-full object-cover"
-        />
+        {isSavedNotes ? (
+          <div
+            className="w-10 h-10 rounded-full flex-shrink-0
+            bg-amber-500/20 border border-amber-400/30
+            flex items-center justify-center text-lg"
+            aria-hidden
+          >
+            📝
+          </div>
+        ) : (
+          <img
+            src={headerPic}
+            alt=""
+            className="w-10 h-10 rounded-full object-cover"
+          />
+        )}
 
         <div className="flex-1 min-w-0">
           <p className="text-white font-medium truncate">{headerTitle}</p>
@@ -968,6 +988,10 @@ const ChatContainer = () => {
             <p className="text-gray-400 text-xs">
               {selectedGroup.members?.length || 0} members
             </p>
+          ) : isSavedNotes ? (
+            <p className="text-amber-300/80 text-xs">
+              Private notes · only you
+            </p>
           ) : onlineUsers.includes(selectedUser._id) ? (
             <p className="text-green-400 text-xs">Online</p>
           ) : (
@@ -976,7 +1000,7 @@ const ChatContainer = () => {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {!isGroupChat && selectedUser && (
+          {!isGroupChat && !isSavedNotes && selectedUser && (
             <>
               <button
                 type="button"
@@ -1832,14 +1856,16 @@ const ChatContainer = () => {
             type="text"
             placeholder={
               editingMessage
-                ? "Edit your message..."
+                ? "Edit your note..."
                 : isRecording
                   ? "Recording voice message..."
                   : pendingAttachments.length
                     ? "Add a caption? (optional)"
                     : replyingTo
                       ? "Type a reply..."
-                      : "Type a message... (attach files or paste image)"
+                      : isSavedNotes
+                        ? "Write a note to yourself..."
+                        : "Type a message... (attach files or paste image)"
             }
             className="flex-1 bg-transparent outline-none text-white py-3 placeholder-gray-400"
             value={input}

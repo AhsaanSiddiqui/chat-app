@@ -28,17 +28,49 @@ const Sidebar = () => {
 
   const navigate = useNavigate();
 
-  const filteredUsers = input
-    ? users.filter((user) =>
-        user.fullName.toLowerCase().includes(input.toLowerCase())
-      )
-    : users;
-
   const filteredGroups = input
     ? groups.filter((group) =>
         group.name.toLowerCase().includes(input.toLowerCase())
       )
     : groups;
+
+  const q = input.trim().toLowerCase();
+  const savedNotesUser =
+    users.find((u) => u.isSavedNotes) ||
+    (authUser?._id
+      ? {
+          _id: authUser._id,
+          fullName: "Saved Notes",
+          bio: "Your private space for important notes",
+          profilePic: authUser.profilePic || "",
+          isSavedNotes: true,
+        }
+      : null);
+  const otherUsers = users.filter(
+    (u) => !u.isSavedNotes && String(u._id) !== String(authUser?._id)
+  );
+  const filteredOthers = q
+    ? otherUsers.filter((user) => {
+        const name = (user.fullName || "").toLowerCase();
+        const email = (user.email || "").toLowerCase();
+        return name.includes(q) || email.includes(q);
+      })
+    : otherUsers;
+  const myName = (authUser?.fullName || "").toLowerCase();
+  const myEmail = (authUser?.email || "").toLowerCase();
+  const showSavedNotes =
+    !!savedNotesUser &&
+    (!q ||
+      "saved notes".includes(q) ||
+      q.includes("note") ||
+      q.includes("saved") ||
+      q.includes("own") ||
+      myName.includes(q) ||
+      myEmail.includes(q) ||
+      savedNotesUser.fullName.toLowerCase().includes(q));
+  const filteredUsers = showSavedNotes
+    ? [savedNotesUser, ...filteredOthers]
+    : filteredOthers;
 
   useEffect(() => {
     if (authUser) {
@@ -110,7 +142,7 @@ const Sidebar = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             type="text"
-            placeholder="Search chats & groups..."
+            placeholder="Search by name or email..."
             className="flex-1 bg-transparent outline-none
           text-xs text-white placeholder:text-gray-500"
           />
@@ -215,13 +247,24 @@ const Sidebar = () => {
               }`}
             >
               <div className="relative flex-shrink-0">
-                <img
-                  src={user?.profilePic || assets.avatar_icon}
-                  alt=""
-                  className="w-10 h-10 rounded-full object-cover"
-                />
+                {user.isSavedNotes ? (
+                  <div
+                    className="w-10 h-10 rounded-full object-cover
+                    bg-amber-500/20 border border-amber-400/30
+                    flex items-center justify-center text-lg"
+                    aria-hidden
+                  >
+                    📝
+                  </div>
+                ) : (
+                  <img
+                    src={user?.profilePic || assets.avatar_icon}
+                    alt=""
+                    className="w-10 h-10 rounded-full object-cover"
+                  />
+                )}
 
-                {onlineUsers.includes(user._id) && (
+                {!user.isSavedNotes && onlineUsers.includes(user._id) && (
                   <span
                     className="absolute bottom-0 right-0 w-2.5 h-2.5
                   bg-green-500 border-2 border-[#0d0d12]
@@ -234,7 +277,7 @@ const Sidebar = () => {
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium truncate">{user.fullName}</p>
 
-                  {unseenMessages[user._id] > 0 && (
+                  {!user.isSavedNotes && unseenMessages[user._id] > 0 && (
                     <span
                       className="ml-2 min-w-5 h-5 px-1.5
                     flex items-center justify-center
@@ -248,12 +291,18 @@ const Sidebar = () => {
 
                 <p
                   className={`text-[11px] mt-0.5 ${
-                    onlineUsers.includes(user._id)
-                      ? "text-green-400"
-                      : "text-gray-500"
+                    user.isSavedNotes
+                      ? "text-amber-300/80"
+                      : onlineUsers.includes(user._id)
+                        ? "text-green-400"
+                        : "text-gray-500"
                   }`}
                 >
-                  {onlineUsers.includes(user._id) ? "Online" : "Offline"}
+                  {user.isSavedNotes
+                    ? "Only you"
+                    : onlineUsers.includes(user._id)
+                      ? "Online"
+                      : "Offline"}
                 </p>
               </div>
             </div>

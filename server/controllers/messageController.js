@@ -19,9 +19,14 @@ export const getUsersForSidebar = async (req, res) => {
         const userId = req.user._id;
         const myObjectId = new mongoose.Types.ObjectId(String(userId));
 
-        const filteredUsers = await User.find({
-            _id: { $ne: userId },
-        }).select("-password").lean();
+        const [me, filteredUsers] = await Promise.all([
+            User.findById(userId).select("-password").lean(),
+            User.find({
+                _id: { $ne: userId },
+            })
+                .select("-password")
+                .lean(),
+        ]);
 
         const [unseenCounts, lastMessages] = await Promise.all([
             Message.aggregate([
@@ -29,6 +34,8 @@ export const getUsersForSidebar = async (req, res) => {
                     $match: {
                         receiverId: myObjectId,
                         seen: false,
+                        // Exclude notes-to-self (sender === receiver)
+                        $expr: { $ne: ["$senderId", "$receiverId"] },
                     },
                 },
                 {
@@ -91,9 +98,20 @@ export const getUsersForSidebar = async (req, res) => {
                 );
             });
 
+        // Pinned "Saved Notes" self-chat (message yourself)
+        const savedNotes = me
+            ? {
+                  ...me,
+                  fullName: "Saved Notes",
+                  bio: "Your private space for important notes",
+                  isSavedNotes: true,
+                  lastMessageAt: lastMap[String(userId)] || null,
+              }
+            : null;
+
         res.json({
             success: true,
-            users,
+            users: savedNotes ? [savedNotes, ...users] : users,
             unseenMessages,
         });
 
@@ -422,6 +440,9 @@ export const sendMessage = async (req, res) => {
             }
         }
 
+        const isSelfChat = String(receiverId) === String(senderId);
+        const now = new Date();
+
         const newMessage = await Message.create({
             senderId,
             receiverId,
@@ -434,9 +455,30 @@ export const sendMessage = async (req, res) => {
                   }
                 : {}),
             ...(replyData ? { replyTo: replyData } : {}),
-        })
+            ...(isSelfChat
+                ? {
+                      delivered: true,
+                      deliveredAt: now,
+                      seen: true,
+                      seenAt: now,
+                  }
+                : {}),
+        });
 
-        // Emit the new message to the receiver's socket 
+        // Saved Notes / self-chat: sync other tabs, no delivery wait
+        if (isSelfChat) {
+            const mySocketId = userSocketMap[String(senderId)];
+            if (mySocketId) {
+                const payload =
+                    typeof newMessage.toObject === "function"
+                        ? newMessage.toObject()
+                        : newMessage;
+                io.to(mySocketId).emit("newMessage", payload);
+            }
+            return res.json({ success: true, newMessage });
+        }
+
+        // Emit the new message to the receiver's socket
         const receiverSocketId = userSocketMap[String(receiverId)];
         if (receiverSocketId) {
             const payload =
@@ -465,7 +507,7 @@ export const sendMessage = async (req, res) => {
             });
         }
 
-        res.json({ success: true, newMessage })
+        res.json({ success: true, newMessage });
     } catch (error) {
         await cleanupUploadedFiles(req.files);
         if (req.file?.path) await removeTempFile(req.file.path);

@@ -17,11 +17,14 @@ const CreateGroupModal = ({ open, onClose }) => {
 
   const candidates = useMemo(
     () =>
-      users.filter(
-        (user) =>
-          String(user._id) !== String(authUser?._id) &&
-          user.fullName.toLowerCase().includes(search.toLowerCase())
-      ),
+      users.filter((user) => {
+        if (user.isSavedNotes) return false;
+        if (String(user._id) === String(authUser?._id)) return false;
+        const q = search.toLowerCase();
+        const name = (user.fullName || "").toLowerCase();
+        const email = (user.email || "").toLowerCase();
+        return name.includes(q) || email.includes(q);
+      }),
     [users, authUser?._id, search]
   );
 

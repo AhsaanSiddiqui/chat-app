@@ -239,8 +239,25 @@ export const ChatProvider = ({ children }) => {
     try {
       const { data } = await axios.get("/api/messages/users");
       if (data.success) {
-        setUsers(data.users);
-        setUnseenMessages(data.unseenMessages);
+        const list = Array.isArray(data.users) ? data.users : [];
+        const hasNotes = list.some((u) => u.isSavedNotes);
+        const me = authUser;
+        const withNotes =
+          hasNotes || !me?._id
+            ? list
+            : [
+                {
+                  _id: me._id,
+                  fullName: "Saved Notes",
+                  bio: "Your private space for important notes",
+                  profilePic: me.profilePic || "",
+                  isSavedNotes: true,
+                  lastMessageAt: null,
+                },
+                ...list.filter((u) => String(u._id) !== String(me._id)),
+              ];
+        setUsers(withNotes);
+        setUnseenMessages(data.unseenMessages || {});
       }
     } catch (error) {
       toast.error(error.message);
@@ -251,16 +268,24 @@ export const ChatProvider = ({ children }) => {
     const id = String(userId || "");
     if (!id) return;
     setUsers((prev) => {
-      const idx = prev.findIndex((u) => String(u._id) === id);
+      const notes = prev.filter((u) => u.isSavedNotes);
+      const rest = prev.filter((u) => !u.isSavedNotes);
+
+      // Keep Saved Notes pinned at top; only refresh its activity time
+      if (notes.length && String(notes[0]._id) === id) {
+        return [{ ...notes[0], lastMessageAt: at }, ...rest];
+      }
+
+      const idx = rest.findIndex((u) => String(u._id) === id);
       if (idx < 0) return prev;
       if (idx === 0) {
-        const updated = [...prev];
+        const updated = [...rest];
         updated[0] = { ...updated[0], lastMessageAt: at };
-        return updated;
+        return [...notes, ...updated];
       }
-      const next = [...prev];
+      const next = [...rest];
       const [user] = next.splice(idx, 1);
-      return [{ ...user, lastMessageAt: at }, ...next];
+      return [...notes, { ...user, lastMessageAt: at }, ...next];
     });
   };
 
@@ -679,11 +704,15 @@ export const ChatProvider = ({ children }) => {
 
     if (!selectedUser?._id) return;
 
+    const isSavedNotes =
+      selectedUser.isSavedNotes ||
+      String(selectedUser._id) === String(authUser._id);
+
     const optimisticMessage = buildOptimistic({
       senderId: authUser._id,
       receiverId: selectedUser._id,
-      delivered: false,
-      seen: false,
+      delivered: isSavedNotes,
+      seen: isSavedNotes,
       played: false,
     });
     const tempId = optimisticMessage._id;
