@@ -1017,7 +1017,7 @@ const ChatContainer = () => {
       <div className="relative flex-1 min-h-0">
         <div
           ref={messagesScrollRef}
-          className="h-full overflow-y-auto p-4 px-8 space-y-3"
+          className="h-full overflow-y-auto p-4 px-4 md:px-8 space-y-3"
           onScroll={updateScrollToLatestVisibility}
         >
         {messagesLoading && messages.length === 0 ? (
@@ -1209,7 +1209,11 @@ const ChatContainer = () => {
                     id={`msg-${msg._id}`}
                     className={`flex group items-end gap-2 rounded-lg transition-shadow ${
                       isMine ? "justify-end" : "justify-start"
-                    } ${isPending ? "opacity-80" : ""}`}
+                    } ${isPending ? "opacity-80" : ""} ${
+                      menuOpenId === msg._id || reactMenuId === msg._id
+                        ? "relative z-50"
+                        : "relative z-0"
+                    }`}
                     onTouchStart={(e) => startLongPress(msg, e)}
                     onTouchEnd={endLongPress}
                     onTouchMove={clearLongPress}
@@ -1285,7 +1289,7 @@ const ChatContainer = () => {
 
                           {menuOpenId === msg._id && (
                             <div
-                              className={`absolute top-10 z-20 min-w-[120px] rounded-lg bg-gray-900 border border-gray-700 shadow-lg overflow-hidden ${
+                              className={`absolute top-10 z-[60] min-w-[120px] rounded-lg bg-gray-900 border border-gray-700 shadow-2xl overflow-hidden ${
                                 isMine ? "left-0" : "right-0"
                               }`}
                               onClick={(e) => e.stopPropagation()}
@@ -1476,7 +1480,7 @@ const ChatContainer = () => {
                       )}
 
                       <div
-                        className={`relative mt-1 flex flex-nowrap items-center gap-1.5 overflow-x-auto ${
+                        className={`relative mt-1 flex flex-nowrap items-center gap-1.5 ${
                           isMine ? "justify-end" : "justify-start"
                         }`}
                       >
@@ -1562,7 +1566,7 @@ const ChatContainer = () => {
                             </button>
                             {menuOpenId === msg._id && (
                               <div
-                                className={`absolute top-5 z-30 min-w-[130px] rounded-lg border border-gray-700 bg-gray-900 shadow-lg overflow-hidden md:hidden ${
+                                className={`absolute bottom-6 z-[60] min-w-[140px] rounded-lg border border-gray-700 bg-gray-900 shadow-2xl overflow-hidden md:hidden ${
                                   isMine ? "right-0" : "left-0"
                                 }`}
                                 onClick={(e) => e.stopPropagation()}
