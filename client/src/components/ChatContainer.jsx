@@ -1440,74 +1440,73 @@ const ChatContainer = () => {
                         </div>
                       )}
 
-                      {!msg.isDeleted && !isPending && (
-                        <div
-                          className={`mt-1 flex flex-wrap items-center gap-1 ${
-                            isMine ? "justify-end" : "justify-start"
-                          }`}
-                        >
-                          {reactionSummary.length > 0 && (
-                            <button
-                              type="button"
-                              title="See who reacted"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openReactionPeople(msg, reactionSummary);
-                              }}
-                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs leading-none transition ${
-                                reactionSummary.some((r) => r.reactedByMe)
-                                  ? "border-violet-400/60 bg-violet-500/25 text-white"
-                                  : "border-white/15 bg-black/30 text-white hover:bg-white/10"
-                              }`}
-                            >
-                              {reactionSummary.map((reaction) => (
-                                <span key={`${msg._id}-${reaction.emoji}`}>
-                                  {reaction.emoji}
-                                </span>
-                              ))}
-                              <span className="text-[10px] text-gray-300">
-                                {reactionSummary.reduce(
-                                  (sum, r) => sum + r.count,
-                                  0
-                                )}
-                              </span>
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            title="React"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openReactionPicker(msg._id, e.currentTarget);
-                            }}
-                            className="flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-black/30 text-[13px] leading-none text-gray-300 hover:bg-white/10"
-                          >
-                            😊
-                          </button>
-                        </div>
-                      )}
-
                       <div
-                        className={`relative mt-1 flex items-center gap-1 ${
+                        className={`relative mt-1 flex flex-nowrap items-center gap-1.5 overflow-x-auto ${
                           isMine ? "justify-end" : "justify-start"
                         }`}
                       >
-                        <p className="flex items-center gap-1 text-[10px] text-gray-400">
-                          {msg.isEdited && !msg.isDeleted && (
-                            <span className="italic">edited</span>
-                          )}
-                          <span>{formatMessageTime(msg.createdAt)}</span>
-                          {isMine && !msg.isDeleted && (
+                        {!msg.isDeleted && !isPending && (
+                          <>
+                            {reactionSummary.length > 0 && (
+                              <button
+                                type="button"
+                                title="See who reacted"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openReactionPeople(msg, reactionSummary);
+                                }}
+                                className={`inline-flex flex-shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs leading-none transition ${
+                                  reactionSummary.some((r) => r.reactedByMe)
+                                    ? "border-violet-400/60 bg-violet-500/25 text-white"
+                                    : "border-white/15 bg-black/30 text-white hover:bg-white/10"
+                                }`}
+                              >
+                                {reactionSummary.map((reaction) => (
+                                  <span key={`${msg._id}-${reaction.emoji}`}>
+                                    {reaction.emoji}
+                                  </span>
+                                ))}
+                                <span className="text-[10px] text-gray-300">
+                                  {reactionSummary.reduce(
+                                    (sum, r) => sum + r.count,
+                                    0
+                                  )}
+                                </span>
+                              </button>
+                            )}
                             <button
                               type="button"
-                              className={`ml-0.5 tracking-tighter ${receiptClass} hover:opacity-80`}
-                              title={`${receiptTitle} · Tap for info`}
-                              onClick={() => openMessageInfo(msg)}
+                              title="React"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openReactionPicker(msg._id, e.currentTarget);
+                              }}
+                              className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[12px] leading-none text-gray-400 hover:bg-white/10 hover:text-white"
                             >
-                              {receiptTicks}
+                              😊
                             </button>
-                          )}
-                        </p>
+                          </>
+                        )}
+
+                        {msg.isEdited && !msg.isDeleted && (
+                          <span className="flex-shrink-0 text-[10px] italic text-gray-400">
+                            edited
+                          </span>
+                        )}
+                        <span className="flex-shrink-0 text-[10px] text-gray-400">
+                          {formatMessageTime(msg.createdAt)}
+                        </span>
+                        {isMine && !msg.isDeleted && (
+                          <button
+                            type="button"
+                            className={`flex-shrink-0 tracking-tighter text-[10px] ${receiptClass} hover:opacity-80`}
+                            title={`${receiptTitle} · Tap for info`}
+                            onClick={() => openMessageInfo(msg)}
+                          >
+                            {receiptTicks}
+                          </button>
+                        )}
+
                         {!msg.isDeleted && !isPending && (
                           <>
                             <button
@@ -1522,7 +1521,7 @@ const ChatContainer = () => {
                                   menuOpenId === msg._id ? null : msg._id
                                 );
                               }}
-                              className="flex h-5 w-5 items-center justify-center rounded-full text-[11px] text-gray-400 hover:bg-white/10 hover:text-white md:hidden"
+                              className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[11px] text-gray-400 hover:bg-white/10 hover:text-white md:hidden"
                             >
                               ⋮
                             </button>
