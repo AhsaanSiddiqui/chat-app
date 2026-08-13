@@ -1440,80 +1440,39 @@ const ChatContainer = () => {
                         </div>
                       )}
 
-                      {!msg.isDeleted && reactionSummary.length > 0 && (
+                      {!msg.isDeleted && !isPending && (
                         <div
                           className={`mt-1 flex flex-wrap items-center gap-1 ${
                             isMine ? "justify-end" : "justify-start"
                           }`}
                         >
-                          <button
-                            type="button"
-                            title="See who reacted"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openReactionPeople(msg, reactionSummary);
-                            }}
-                            className={`inline-flex min-h-9 items-center gap-1 rounded-full border px-2.5 py-1 text-sm leading-none transition md:min-h-0 md:px-2 md:py-0.5 md:text-xs ${
-                              reactionSummary.some((r) => r.reactedByMe)
-                                ? "border-violet-400/60 bg-violet-500/25 text-white"
-                                : "border-white/15 bg-black/30 text-white hover:bg-white/10"
-                            }`}
-                          >
-                            {reactionSummary.map((reaction) => (
-                              <span key={`${msg._id}-${reaction.emoji}`}>
-                                {reaction.emoji}
-                              </span>
-                            ))}
-                            <span className="ml-0.5 text-[11px] text-gray-300 md:text-[10px]">
-                              {reactionSummary.reduce(
-                                (sum, r) => sum + r.count,
-                                0
-                              )}
-                            </span>
-                          </button>
-                          {!isPending && (
+                          {reactionSummary.length > 0 && (
                             <button
                               type="button"
-                              title="Add or change reaction"
+                              title="See who reacted"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                openReactionPicker(msg._id, e.currentTarget);
+                                openReactionPeople(msg, reactionSummary);
                               }}
-                              className="flex min-h-9 min-w-9 items-center justify-center rounded-full border border-white/15 bg-black/30 px-2 text-sm text-gray-300 hover:bg-white/10 md:min-h-0 md:min-w-0 md:py-0.5 md:text-xs"
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs leading-none transition ${
+                                reactionSummary.some((r) => r.reactedByMe)
+                                  ? "border-violet-400/60 bg-violet-500/25 text-white"
+                                  : "border-white/15 bg-black/30 text-white hover:bg-white/10"
+                              }`}
                             >
-                              +
+                              {reactionSummary.map((reaction) => (
+                                <span key={`${msg._id}-${reaction.emoji}`}>
+                                  {reaction.emoji}
+                                </span>
+                              ))}
+                              <span className="text-[10px] text-gray-300">
+                                {reactionSummary.reduce(
+                                  (sum, r) => sum + r.count,
+                                  0
+                                )}
+                              </span>
                             </button>
                           )}
-                        </div>
-                      )}
-
-                      <p
-                        className={`text-[10px] text-gray-400 mt-1 flex items-center gap-1 ${
-                          isMine ? "justify-end" : "justify-start"
-                        }`}
-                      >
-                        {msg.isEdited && !msg.isDeleted && (
-                          <span className="italic">edited</span>
-                        )}
-                        <span>{formatMessageTime(msg.createdAt)}</span>
-                        {isMine && !msg.isDeleted && (
-                          <button
-                            type="button"
-                            className={`ml-0.5 tracking-tighter ${receiptClass} hover:opacity-80`}
-                            title={`${receiptTitle} · Tap for info`}
-                            onClick={() => openMessageInfo(msg)}
-                          >
-                            {receiptTicks}
-                          </button>
-                        )}
-                      </p>
-
-                      {!msg.isDeleted && !isPending && (
-                        <div
-                          className={`mt-1 flex md:hidden items-center gap-1.5 ${
-                            isMine ? "justify-end" : "justify-start"
-                          }`}
-                        >
                           <button
                             type="button"
                             title="React"
@@ -1521,95 +1480,120 @@ const ChatContainer = () => {
                               e.stopPropagation();
                               openReactionPicker(msg._id, e.currentTarget);
                             }}
-                            className="flex h-9 items-center gap-1 rounded-full border border-white/15 bg-black/35 px-3 text-sm text-white"
+                            className="flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-black/30 text-[13px] leading-none text-gray-300 hover:bg-white/10"
                           >
-                            <span>🙂</span>
-                            <span className="text-[11px] text-gray-300">React</span>
+                            😊
                           </button>
-                          <button
-                            type="button"
-                            title="More"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setReactMenuId(null);
-                              setReactAnchorEl(null);
-                              setShowFullEmojiPicker(false);
-                              setMenuOpenId(
-                                menuOpenId === msg._id ? null : msg._id
-                              );
-                            }}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/35 text-white"
-                          >
-                            ⋮
-                          </button>
-                          {menuOpenId === msg._id && (
-                            <div
-                              className={`absolute z-30 mt-10 min-w-[140px] rounded-lg border border-gray-700 bg-gray-900 shadow-lg overflow-hidden ${
-                                isMine ? "right-0" : "left-0"
-                              }`}
-                              style={{ top: "auto" }}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                type="button"
-                                className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
-                                onClick={() => {
-                                  setMenuOpenId(null);
-                                  openReactionPicker(msg._id, null);
-                                }}
-                              >
-                                React
-                              </button>
-                              <button
-                                type="button"
-                                className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
-                                onClick={() => {
-                                  setMenuOpenId(null);
-                                  startReply(msg);
-                                }}
-                              >
-                                Reply
-                              </button>
-                              {isMine && (
-                                <button
-                                  type="button"
-                                  className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
-                                  onClick={() => {
-                                    setMenuOpenId(null);
-                                    openMessageInfo(msg);
-                                  }}
-                                >
-                                  Info
-                                </button>
-                              )}
-                              {canEdit && (
-                                <button
-                                  type="button"
-                                  className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
-                                  onClick={() => {
-                                    setMenuOpenId(null);
-                                    startEdit(msg);
-                                  }}
-                                >
-                                  Edit
-                                </button>
-                              )}
-                              {isMine && (
-                                <button
-                                  type="button"
-                                  className="block w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-gray-800"
-                                  onClick={() => {
-                                    setMenuOpenId(null);
-                                    handleDelete(msg);
-                                  }}
-                                >
-                                  Delete
-                                </button>
-                              )}
-                            </div>
-                          )}
                         </div>
                       )}
+
+                      <div
+                        className={`relative mt-1 flex items-center gap-1 ${
+                          isMine ? "justify-end" : "justify-start"
+                        }`}
+                      >
+                        <p className="flex items-center gap-1 text-[10px] text-gray-400">
+                          {msg.isEdited && !msg.isDeleted && (
+                            <span className="italic">edited</span>
+                          )}
+                          <span>{formatMessageTime(msg.createdAt)}</span>
+                          {isMine && !msg.isDeleted && (
+                            <button
+                              type="button"
+                              className={`ml-0.5 tracking-tighter ${receiptClass} hover:opacity-80`}
+                              title={`${receiptTitle} · Tap for info`}
+                              onClick={() => openMessageInfo(msg)}
+                            >
+                              {receiptTicks}
+                            </button>
+                          )}
+                        </p>
+                        {!msg.isDeleted && !isPending && (
+                          <>
+                            <button
+                              type="button"
+                              title="More"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setReactMenuId(null);
+                                setReactAnchorEl(null);
+                                setShowFullEmojiPicker(false);
+                                setMenuOpenId(
+                                  menuOpenId === msg._id ? null : msg._id
+                                );
+                              }}
+                              className="flex h-5 w-5 items-center justify-center rounded-full text-[11px] text-gray-400 hover:bg-white/10 hover:text-white md:hidden"
+                            >
+                              ⋮
+                            </button>
+                            {menuOpenId === msg._id && (
+                              <div
+                                className={`absolute top-5 z-30 min-w-[130px] rounded-lg border border-gray-700 bg-gray-900 shadow-lg overflow-hidden md:hidden ${
+                                  isMine ? "right-0" : "left-0"
+                                }`}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
+                                  onClick={() => {
+                                    setMenuOpenId(null);
+                                    openReactionPicker(msg._id, null);
+                                  }}
+                                >
+                                  React
+                                </button>
+                                <button
+                                  type="button"
+                                  className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
+                                  onClick={() => {
+                                    setMenuOpenId(null);
+                                    startReply(msg);
+                                  }}
+                                >
+                                  Reply
+                                </button>
+                                {isMine && (
+                                  <button
+                                    type="button"
+                                    className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
+                                    onClick={() => {
+                                      setMenuOpenId(null);
+                                      openMessageInfo(msg);
+                                    }}
+                                  >
+                                    Info
+                                  </button>
+                                )}
+                                {canEdit && (
+                                  <button
+                                    type="button"
+                                    className="block w-full text-left px-3 py-2.5 text-sm text-white hover:bg-gray-800"
+                                    onClick={() => {
+                                      setMenuOpenId(null);
+                                      startEdit(msg);
+                                    }}
+                                  >
+                                    Edit
+                                  </button>
+                                )}
+                                {isMine && (
+                                  <button
+                                    type="button"
+                                    className="block w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-gray-800"
+                                    onClick={() => {
+                                      setMenuOpenId(null);
+                                      handleDelete(msg);
+                                    }}
+                                  >
+                                    Delete
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
 
                       {showStatusTime && statusTimeLabel && (
                         <p className="text-[10px] text-sky-400 mt-0.5 text-right">
