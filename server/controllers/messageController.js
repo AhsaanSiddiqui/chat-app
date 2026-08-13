@@ -1,5 +1,6 @@
 import Message from "../models/Message.js";
 import User from "../models/User.js";
+import mongoose from "mongoose";
 import cloudinary from "../lib/cloudinary.js"
 import {
   cleanupUploadedFiles,
@@ -16,30 +17,83 @@ import { io, userSocketMap } from "../server.js"
 export const getUsersForSidebar = async (req, res) => {
     try {
         const userId = req.user._id;
+        const myObjectId = new mongoose.Types.ObjectId(String(userId));
 
         const filteredUsers = await User.find({
             _id: { $ne: userId },
-        }).select("-password");
+        }).select("-password").lean();
+
+        const [unseenCounts, lastMessages] = await Promise.all([
+            Message.aggregate([
+                {
+                    $match: {
+                        receiverId: myObjectId,
+                        seen: false,
+                    },
+                },
+                {
+                    $group: {
+                        _id: "$senderId",
+                        count: { $sum: 1 },
+                    },
+                },
+            ]),
+            Message.aggregate([
+                {
+                    $match: {
+                        $or: [
+                            { senderId: myObjectId },
+                            { receiverId: myObjectId },
+                        ],
+                    },
+                },
+                { $sort: { createdAt: -1 } },
+                {
+                    $group: {
+                        _id: {
+                            $cond: [
+                                { $eq: ["$senderId", myObjectId] },
+                                "$receiverId",
+                                "$senderId",
+                            ],
+                        },
+                        lastMessageAt: { $first: "$createdAt" },
+                    },
+                },
+            ]),
+        ]);
 
         const unseenMessages = {};
-
-        const promises = filteredUsers.map(async (user) => {
-            const messages = await Message.find({
-                senderId: user._id,
-                receiverId: userId,
-                seen: false,
-            });
-
-            if (messages.length > 0) {
-                unseenMessages[user._id] = messages.length;
-            }
+        unseenCounts.forEach((row) => {
+            unseenMessages[String(row._id)] = row.count;
         });
 
-        await Promise.all(promises);
+        const lastMap = {};
+        lastMessages.forEach((row) => {
+            lastMap[String(row._id)] = row.lastMessageAt;
+        });
+
+        const users = filteredUsers
+            .map((user) => ({
+                ...user,
+                lastMessageAt: lastMap[String(user._id)] || null,
+            }))
+            .sort((a, b) => {
+                const ta = a.lastMessageAt
+                    ? new Date(a.lastMessageAt).getTime()
+                    : 0;
+                const tb = b.lastMessageAt
+                    ? new Date(b.lastMessageAt).getTime()
+                    : 0;
+                if (tb !== ta) return tb - ta;
+                return String(a.fullName || "").localeCompare(
+                    String(b.fullName || "")
+                );
+            });
 
         res.json({
             success: true,
-            users: filteredUsers,
+            users,
             unseenMessages,
         });
 

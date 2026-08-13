@@ -247,6 +247,40 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
+  const bumpUserInSidebar = (userId, at = new Date().toISOString()) => {
+    const id = String(userId || "");
+    if (!id) return;
+    setUsers((prev) => {
+      const idx = prev.findIndex((u) => String(u._id) === id);
+      if (idx < 0) return prev;
+      if (idx === 0) {
+        const updated = [...prev];
+        updated[0] = { ...updated[0], lastMessageAt: at };
+        return updated;
+      }
+      const next = [...prev];
+      const [user] = next.splice(idx, 1);
+      return [{ ...user, lastMessageAt: at }, ...next];
+    });
+  };
+
+  const bumpGroupInSidebar = (groupId, at = new Date().toISOString()) => {
+    const id = String(groupId || "");
+    if (!id) return;
+    setGroups((prev) => {
+      const idx = prev.findIndex((g) => String(g._id) === id);
+      if (idx < 0) return prev;
+      if (idx === 0) {
+        const updated = [...prev];
+        updated[0] = { ...updated[0], updatedAt: at };
+        return updated;
+      }
+      const next = [...prev];
+      const [group] = next.splice(idx, 1);
+      return [{ ...group, updatedAt: at }, ...next];
+    });
+  };
+
   const getGroups = async () => {
     try {
       const { data } = await axios.get("/api/groups/my");
@@ -626,6 +660,10 @@ export const ChatProvider = ({ children }) => {
               String(msg._id) === tempId ? data.newMessage : msg
             )
           );
+          bumpGroupInSidebar(
+            selectedGroup._id,
+            data.newMessage?.createdAt || new Date().toISOString()
+          );
         } else {
           setMessages((prev) =>
             prev.filter((msg) => String(msg._id) !== tempId)
@@ -661,6 +699,10 @@ export const ChatProvider = ({ children }) => {
           prev.map((msg) =>
             String(msg._id) === tempId ? data.newMessage : msg
           )
+        );
+        bumpUserInSidebar(
+          selectedUser._id,
+          data.newMessage?.createdAt || new Date().toISOString()
         );
       } else {
         setMessages((prev) =>
@@ -935,6 +977,13 @@ export const ChatProvider = ({ children }) => {
         }));
       }
 
+      // Keep contact list ordered by latest message
+      const peerId = isFromMe ? receiverId : senderId;
+      bumpUserInSidebar(
+        peerId,
+        newMessage.createdAt || new Date().toISOString()
+      );
+
       if (!isFromMe) {
         notifyNewMessage(newMessage);
       }
@@ -978,6 +1027,11 @@ export const ChatProvider = ({ children }) => {
           [groupId]: prev[groupId] ? prev[groupId] + 1 : 1,
         }));
       }
+
+      bumpGroupInSidebar(
+        groupId,
+        newMessage.createdAt || new Date().toISOString()
+      );
 
       if (newMessage.messageType !== "system") {
         notifyNewMessage(newMessage, { isGroup: true });
