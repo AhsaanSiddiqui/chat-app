@@ -30,6 +30,11 @@ export const ChatProvider = ({ children }) => {
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
   const [groupTypingUsers, setGroupTypingUsers] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [profilePanelOpen, setProfilePanelOpen] = useState(false);
+
+  const openProfilePanel = () => setProfilePanelOpen(true);
+  const closeProfilePanel = () => setProfilePanelOpen(false);
+  const toggleProfilePanel = () => setProfilePanelOpen((prev) => !prev);
 
   const { socket, axios, authUser, ensureSocketConnected } =
     useContext(AuthContext);
@@ -75,6 +80,7 @@ export const ChatProvider = ({ children }) => {
       setSelectedGroupState(null);
       localStorage.removeItem(SELECTED_GROUP_KEY);
     }
+    setProfilePanelOpen(false);
     setSelectedUserState(user);
   };
 
@@ -83,6 +89,7 @@ export const ChatProvider = ({ children }) => {
       setSelectedUserState(null);
       localStorage.removeItem(SELECTED_CHAT_KEY);
     }
+    setProfilePanelOpen(false);
     setSelectedGroupState(group);
   };
 
@@ -1602,6 +1609,10 @@ export const ChatProvider = ({ children }) => {
     startTyping,
     stopTyping,
     messagesLoading,
+    profilePanelOpen,
+    openProfilePanel,
+    closeProfilePanel,
+    toggleProfilePanel,
   };
 
   return (

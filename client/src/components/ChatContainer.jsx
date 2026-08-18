@@ -123,6 +123,7 @@ const ChatContainer = () => {
     startTyping,
     stopTyping,
     messagesLoading,
+    toggleProfilePanel,
   } = useContext(ChatContext);
 
   const { authUser, onlineUsers, ensureSocketConnected } = useContext(AuthContext);
@@ -958,46 +959,54 @@ const ChatContainer = () => {
       onPaste={handlePaste}
     >
       <div className="flex items-center gap-3 p-4 border-b border-gray-700 flex-shrink-0">
-        {isSavedNotes ? (
-          <div
-            className="w-10 h-10 rounded-full flex-shrink-0
+        <button
+          type="button"
+          onClick={toggleProfilePanel}
+          title="View profile & shared media"
+          className="flex items-center gap-3 flex-1 min-w-0 text-left rounded-lg
+          -ml-1 px-1 py-0.5 hover:bg-white/5 transition cursor-pointer"
+        >
+          {isSavedNotes ? (
+            <div
+              className="w-10 h-10 rounded-full flex-shrink-0
             bg-amber-500/20 border border-amber-400/30
             flex items-center justify-center text-lg"
-            aria-hidden
-          >
-            📝
-          </div>
-        ) : (
-          <img
-            src={headerPic}
-            alt=""
-            className="w-10 h-10 rounded-full object-cover"
-          />
-        )}
-
-        <div className="flex-1 min-w-0">
-          <p className="text-white font-medium truncate">{headerTitle}</p>
-
-          {showGroupTyping ? (
-            <p className="text-green-400 text-xs italic truncate">
-              {groupTypingLabel()}
-            </p>
-          ) : showDmTyping ? (
-            <p className="text-green-400 text-xs italic">typing...</p>
-          ) : isGroupChat ? (
-            <p className="text-gray-400 text-xs">
-              {selectedGroup.members?.length || 0} members
-            </p>
-          ) : isSavedNotes ? (
-            <p className="text-amber-300/80 text-xs">
-              Private notes · only you
-            </p>
-          ) : onlineUsers.includes(selectedUser._id) ? (
-            <p className="text-green-400 text-xs">Online</p>
+              aria-hidden
+            >
+              📝
+            </div>
           ) : (
-            <p className="text-gray-400 text-xs">Offline</p>
+            <img
+              src={headerPic}
+              alt=""
+              className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+            />
           )}
-        </div>
+
+          <div className="flex-1 min-w-0">
+            <p className="text-white font-medium truncate">{headerTitle}</p>
+
+            {showGroupTyping ? (
+              <p className="text-green-400 text-xs italic truncate">
+                {groupTypingLabel()}
+              </p>
+            ) : showDmTyping ? (
+              <p className="text-green-400 text-xs italic">typing...</p>
+            ) : isGroupChat ? (
+              <p className="text-gray-400 text-xs">
+                {selectedGroup.members?.length || 0} members
+              </p>
+            ) : isSavedNotes ? (
+              <p className="text-amber-300/80 text-xs">
+                Private notes · only you
+              </p>
+            ) : onlineUsers.includes(selectedUser._id) ? (
+              <p className="text-green-400 text-xs">Online</p>
+            ) : (
+              <p className="text-gray-400 text-xs">Offline</p>
+            )}
+          </div>
+        </button>
 
         <div className="flex items-center gap-2 flex-shrink-0">
           {!isGroupChat && !isSavedNotes && selectedUser && (

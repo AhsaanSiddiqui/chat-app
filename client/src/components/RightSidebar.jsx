@@ -53,6 +53,7 @@ const RightSidebar = () => {
     addGroupMembers,
     removeGroupMember,
     makeGroupAdmin,
+    closeProfilePanel,
   } = useContext(ChatContext);
   const { logout, onlineUsers, authUser } = useContext(AuthContext);
   const [lightboxImage, setLightboxImage] = useState(null);
@@ -190,10 +191,19 @@ const RightSidebar = () => {
 
   return (
     <div
-      className={`bg-[#8185B2]/10 text-white w-full relative overflow-y-scroll ${
-        active ? "max-md:hidden" : ""
-      }`}
+      className="bg-[#8185B2]/10 text-white w-full h-full relative overflow-y-auto
+      max-md:fixed max-md:inset-0 max-md:z-50 max-md:bg-[#0d0d12]/95 max-md:backdrop-blur-lg"
     >
+      <button
+        type="button"
+        onClick={closeProfilePanel}
+        title="Close"
+        className="absolute top-4 right-4 z-10 h-9 w-9 rounded-full
+        bg-white/10 text-white hover:bg-white/20 text-lg leading-none"
+      >
+        ✕
+      </button>
+
       {selectedGroup ? (
         <>
           <div className="pt-16 flex flex-col items-center gap-2 text-xs font-light mx-auto">
